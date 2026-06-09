@@ -1,0 +1,13 @@
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+
+  # 1. No reescribir si la petición ya apunta a la carpeta /dist
+  RewriteCond %{REQUEST_URI} ^/dist/ [NC]
+  RewriteRule ^ - [L]
+
+  # 2. Permitir el acceso directo a config.php en la raíz
+  RewriteRule ^config\.php$ - [L]
+
+  # 3. Reescribir todas las demás peticiones para que se sirvan desde la carpeta dist/
+  RewriteRule ^(.*)$ dist/$1 [L]
+</IfModule>
