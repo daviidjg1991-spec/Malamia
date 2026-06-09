@@ -1,0 +1,1891 @@
+import React, { useState, useMemo } from 'react';
+import { Plus, Trash2, Calendar, LayoutGrid, Import, X, ChevronDown, ChevronUp, ZoomIn, ZoomOut, UserPlus, FilePlus, Settings, Lock, Unlock, LogIn, LogOut } from 'lucide-react';
+import { v4 as uuidv4 } from 'uuid';
+import { db } from './firebase';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+
+// Types
+export type ViewPermission = 'grid' | 'visual' | 'summary';
+
+export interface UserAccess {
+  id: string;
+  email: string;
+  role: 'admin' | 'user';
+  permissions: {
+    canEdit: boolean;
+    allowedViews: ViewPermission[];
+  };
+  password?: string;
+}
+
+export interface CategoryGroup {
+  id: string;
+  name: string;
+  color: string;
+  rows: RowData[];
+}
+
+export interface RowData {
+  id: string;
+  type: 'employee' | 'subheader';
+  name: string;
+  rate: number;
+  status: string;
+  role?: string;
+  shifts: Record<number, { start: string; end: string }>;
+}
+
+const PALETTE = ['#e6b8b7', '#b8cce4', '#d8e4bc', '#ccc1d9', '#fcd5b4', '#b7dee8', '#e4dfec', '#f2dcdb'];
+
+const getNextFriday = () => {
+  const d = new Date();
+  const diff = 5 - d.getDay();
+  d.setDate(d.getDate() + diff);
+  if (diff < 0) d.setDate(d.getDate() + 7);
+  return d.toISOString().split('T')[0];
+};
+
+const formatDateDay = (d: Date) => {
+  const days = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+  return `${days[d.getDay()]} ${d.getDate()}/${d.getMonth() + 1}`;
+};
+
+const getHours = (start: string, end: string) => {
+  if (!start || !end || !start.includes(':') || !end.includes(':')) return 0;
+  const [sh, sm] = start.split(':').map(Number);
+  const [eh, em] = end.split(':').map(Number);
+  if (isNaN(sh) || isNaN(sm) || isNaN(eh) || isNaN(em)) return 0;
+
+  let mins = (eh * 60 + em) - (sh * 60 + sm);
+  if (mins < 0) mins += 24 * 60; // Next day assuming overnight shift
+  return mins / 60;
+};
+
+const formatDecimalHours = (decimalHours: number) => {
+  if (!decimalHours) return '';
+  const h = Math.floor(decimalHours);
+  const m = Math.round((decimalHours - h) * 60);
+  return `${h}:${m.toString().padStart(2, '0')}`;
+};
+
+const parseTimeInput = (val: string) => {
+  if (!val) return '';
+  const cleaned = val.replace(/[^\d:]/g, '');
+  if (!cleaned) return '';
+  if (cleaned.includes(':')) {
+    const parts = cleaned.split(':');
+    return `${parts[0].padStart(2, '0')}:${(parts[1] || '00').padStart(2, '0').slice(0, 2)}`;
+  }
+  if (cleaned.length <= 2) return `${cleaned.padStart(2, '0')}:00`;
+  if (cleaned.length === 3) return `0${cleaned.slice(0, 1)}:${cleaned.slice(1, 3)}`;
+  if (cleaned.length === 4) return `${cleaned.slice(0, 2)}:${cleaned.slice(2, 4)}`;
+  return cleaned;
+};
+
+const INITIAL_DATA: CategoryGroup[] = [
+  {
+    id: 'cat-1',
+    name: 'BARRA CENTRAL',
+    color: '#e6b8b7',
+    rows: [
+      {
+        id: uuidv4(), type: 'employee', name: 'CLAUDIA PELU', rate: 10, status: 'PAGADO',
+        shifts: {
+          1: { start: '12:00', end: '20:00' },
+          2: { start: '12:00', end: '20:00' },
+          3: { start: '12:00', end: '20:00' },
+        }
+      },
+      {
+        id: uuidv4(), type: 'subheader', name: 'NOCHE', rate: 0, status: '', shifts: {}
+      },
+      {
+        id: uuidv4(), type: 'employee', name: 'DANI VALLADOLID', rate: 10, status: 'PREPARADO',
+        shifts: {
+          1: { start: '21:00', end: '02:00' },
+          2: { start: '21:00', end: '02:00' },
+        }
+      }
+    ]
+  },
+  {
+    id: 'cat-2',
+    name: 'ESCENARIO',
+    color: '#e6b8b7',
+    rows: [
+      {
+        id: uuidv4(), type: 'employee', name: 'JAVI DADA', rate: 10, status: 'PAGADO',
+        shifts: { 1: { start: '21:00', end: '07:00' } }
+      }
+    ]
+  }
+];
+
+export default function App() {
+  const [categories, setCategories] = useState<CategoryGroup[]>(() => {
+    const saved = localStorage.getItem('gestor_categories');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    return INITIAL_DATA;
+  });
+  const [startDate, setStartDate] = useState(getNextFriday());
+  const [currentView, setCurrentView] = useState<'grid' | 'visual' | 'summary'>('grid');
+  const [selectedDayIdx, setSelectedDayIdx] = useState(0);
+
+  const getInitialEndDate = (start: string) => {
+    const d = new Date(start);
+    d.setDate(d.getDate() + 9);
+    return d.toISOString().split('T')[0];
+  };
+
+  const [endDate, setEndDate] = useState(getInitialEndDate(getNextFriday()));
+
+  const daysArray = useMemo(() => {
+    const arr = [];
+    const startObj = new Date(startDate);
+    const endObj = new Date(endDate);
+    
+    // Fallback: if endDate is before startDate, just show 1 day
+    if (endObj < startObj) {
+      arr.push(new Date(startObj));
+      return arr;
+    }
+
+    const diffTime = Math.abs(endObj.getTime() - startObj.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    // Limit to max 31 days to prevent memory issues
+    const numDays = Math.min(diffDays + 1, 31);
+
+    for (let i = 0; i < numDays; i++) {
+      const d = new Date(startObj);
+      d.setDate(d.getDate() + i);
+      arr.push(d);
+    }
+    return arr;
+  }, [startDate, endDate]);
+
+  // Actions
+  const [dragSource, setDragSource] = useState<{ catId: string, rowIdx: number } | null>(null);
+  const [dragOverInfo, setDragOverInfo] = useState<{ catId: string, rowIdx: number } | null>(null);
+
+  const handleDragStart = (e: React.DragEvent, catId: string, rowIdx: number) => {
+    setDragSource({ catId, rowIdx });
+  };
+
+  const handleDragOver = (e: React.DragEvent, catId: string, rowIdx: number) => {
+    e.preventDefault();
+    if (dragSource && dragSource.catId === catId) {
+      setDragOverInfo({ catId, rowIdx });
+    }
+  };
+
+  const handleDragLeave = () => {
+    setDragOverInfo(null);
+  };
+
+  const handleDrop = (e: React.DragEvent, catId: string, rowIdx: number) => {
+    e.preventDefault();
+    if (dragSource && dragSource.catId === catId && dragSource.rowIdx !== rowIdx) {
+      setCategories(prev => prev.map(c => {
+        if (c.id !== catId) return c;
+        const newRows = [...c.rows];
+        const [draggedRow] = newRows.splice(dragSource.rowIdx, 1);
+        newRows.splice(rowIdx, 0, draggedRow);
+        return { ...c, rows: newRows };
+      }));
+    }
+    setDragSource(null);
+    setDragOverInfo(null);
+  };
+
+  const handleDragEnd = () => {
+    setDragSource(null);
+    setDragOverInfo(null);
+  };
+
+  const updateRow = (catId: string, rowId: string, updater: (r: RowData) => RowData) => {
+    setCategories(prev => prev.map(c => {
+      if (c.id !== catId) return c;
+      return { ...c, rows: c.rows.map(r => r.id === rowId ? updater(r) : r) };
+    }));
+  };
+
+  const handleShiftChange = (catId: string, rowId: string, dayIdx: number, field: 'start' | 'end', val: string) => {
+    updateRow(catId, rowId, r => ({
+      ...r,
+      shifts: {
+        ...r.shifts,
+        [dayIdx]: { ...(r.shifts[dayIdx] || { start: '', end: '' }), [field]: val }
+      }
+    }));
+  };
+
+  const handleShiftBlur = (catId: string, rowId: string, dayIdx: number, field: 'start' | 'end', val: string) => {
+    handleShiftChange(catId, rowId, dayIdx, field, parseTimeInput(val));
+  };
+
+  const toggleVisualHour = (catId: string, empName: string, h: number, isDeselect: boolean) => {
+    setCategories(prev => {
+      const newCats = [...prev];
+      const catIdx = newCats.findIndex(c => c.id === catId);
+      if (catIdx === -1) return prev;
+      
+      const cat = { ...newCats[catIdx] };
+      const rows = [...cat.rows];
+      
+      const formatHour = (val: number) => {
+         const hour = Math.floor(val);
+         const min = Math.round((val - hour) * 60);
+         const displayHour = hour >= 24 ? hour - 24 : hour;
+         return `${displayHour.toString().padStart(2, '0')}:${min.toString().padStart(2, '0')}`;
+      };
+
+      const getShiftBounds = (shift: any) => {
+          const startParts = shift.start.split(':').map(Number);
+          const endParts = shift.end.split(':').map(Number);
+          let sVal = startParts[0] + startParts[1]/60;
+          let eVal = endParts[0] + endParts[1]/60;
+          
+          if (sVal < 5) sVal += 24;
+          if (eVal <= sVal && eVal < 12) eVal += 24;
+          if (eVal <= sVal) eVal += 24;
+          return [sVal, eVal];
+      };
+      
+      const empRowIndices = rows.map((r, idx) => r.name.trim().toLowerCase() === empName.trim().toLowerCase() ? idx : -1).filter(idx => idx !== -1);
+      
+      if (isDeselect) {
+         for (const idx of empRowIndices) {
+            const r = rows[idx];
+            const shift = r.shifts[selectedDayIdx];
+            if (shift && shift.start && shift.end) {
+               const [sVal, eVal] = getShiftBounds(shift);
+               
+               if (h >= sVal && h < eVal) {
+                  if (sVal === h && eVal === h + 1) {
+                     const newShifts = { ...r.shifts };
+                     delete newShifts[selectedDayIdx];
+                     rows[idx] = { ...r, shifts: newShifts };
+                  } else if (sVal === h) {
+                     rows[idx] = { ...r, shifts: { ...r.shifts, [selectedDayIdx]: { ...shift, start: formatHour(h + 1) } } };
+                  } else if (eVal === h + 1) {
+                     rows[idx] = { ...r, shifts: { ...r.shifts, [selectedDayIdx]: { ...shift, end: formatHour(h) } } };
+                  } else {
+                     // Split
+                     rows[idx] = { ...r, shifts: { ...r.shifts, [selectedDayIdx]: { ...shift, end: formatHour(h) } } };
+                     const emptyRowIdx = empRowIndices.find(i => !rows[i].shifts[selectedDayIdx]);
+                     if (emptyRowIdx !== undefined) {
+                        rows[emptyRowIdx] = { ...rows[emptyRowIdx], shifts: { ...rows[emptyRowIdx].shifts, [selectedDayIdx]: { start: formatHour(h + 1), end: formatHour(eVal) } } };
+                     } else {
+                        const newRow = {
+                           id: crypto.randomUUID(),
+                           type: 'employee' as const,
+                           name: r.name,
+                           role: r.role,
+                           rate: r.rate,
+                           status: r.status,
+                           shifts: { [selectedDayIdx]: { start: formatHour(h + 1), end: formatHour(eVal) } }
+                        };
+                        rows.splice(idx + 1, 0, newRow);
+                     }
+                  }
+                  break;
+               }
+            }
+         }
+      } else {
+         let extended = false;
+         for (const idx of empRowIndices) {
+            const r = rows[idx];
+            const shift = r.shifts[selectedDayIdx];
+            if (shift && shift.start && shift.end) {
+               const [sVal, eVal] = getShiftBounds(shift);
+               if (eVal === h) {
+                  rows[idx] = { ...r, shifts: { ...r.shifts, [selectedDayIdx]: { ...shift, end: formatHour(h + 1) } } };
+                  extended = true;
+                  break;
+               } else if (sVal === h + 1) {
+                  rows[idx] = { ...r, shifts: { ...r.shifts, [selectedDayIdx]: { ...shift, start: formatHour(h) } } };
+                  extended = true;
+                  break;
+               }
+            }
+         }
+         
+         if (!extended) {
+             const emptyRowIdx = empRowIndices.find(i => !rows[i].shifts[selectedDayIdx]);
+             if (emptyRowIdx !== undefined) {
+                 rows[emptyRowIdx] = { ...rows[emptyRowIdx], shifts: { ...rows[emptyRowIdx].shifts, [selectedDayIdx]: { start: formatHour(h), end: formatHour(h + 1) } } };
+             } else {
+                 if (empRowIndices.length > 0) {
+                     const blueprint = rows[empRowIndices[0]];
+                     const newRow = {
+                        id: crypto.randomUUID(),
+                        type: 'employee' as const,
+                        name: blueprint.name,
+                        role: blueprint.role,
+                        rate: blueprint.rate,
+                        status: blueprint.status,
+                        shifts: { [selectedDayIdx]: { start: formatHour(h), end: formatHour(h + 1) } }
+                     };
+                     rows.splice(empRowIndices[empRowIndices.length - 1] + 1, 0, newRow);
+                 }
+             }
+         }
+      }
+      
+      cat.rows = rows;
+      newCats[catIdx] = cat;
+      return newCats;
+    });
+  };
+
+  const [newCategoryModalOpen, setNewCategoryModalOpen] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  
+  const [selectedEmployeeNameForModal, setSelectedEmployeeNameForModal] = useState<string | null>(null);
+  const [daySelectPopoverOpen, setDaySelectPopoverOpen] = useState(false);
+  const [visualZoom, setVisualZoom] = useState(100);
+  const [gridZoom, setGridZoom] = useState(100);
+
+  // Auth State
+  const [currentUser, setCurrentUser] = useState<UserAccess | null>(() => {
+    const saved = localStorage.getItem('gestor_current_user');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    return null;
+  });
+  const isAdmin = currentUser?.role === 'admin';
+  const canEdit = currentUser ? currentUser.permissions.canEdit : true;
+
+  const [emailInput, setEmailInput] = useState('');
+  const [passInput, setPassInput] = useState('');
+  const [loginError, setLoginError] = useState('');
+  
+  // Settings Modal State
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<'general' | 'users'>('general');
+  const [usersList, setUsersList] = useState<UserAccess[]>(() => {
+    const saved = localStorage.getItem('gestor_users_list');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    return [
+      {
+        id: uuidv4(),
+        email: 'daviidjg1991@gmail.com',
+        role: 'admin',
+        permissions: { canEdit: true, allowedViews: ['grid', 'visual', 'summary'] },
+        password: '637050616'
+      }
+    ];
+  });
+
+  // Admin Password Change State
+  const [adminPasswordInput, setAdminPasswordInput] = useState('');
+  const [confirmAdminPasswordInput, setConfirmAdminPasswordInput] = useState('');
+  const [passwordChangeSuccess, setPasswordChangeSuccess] = useState('');
+  const [passwordChangeError, setPasswordChangeError] = useState('');
+
+  // Firestore & local persistence states
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'loading' | 'saving' | 'saved' | 'error'>('idle');
+  const [initialLoadComplete, setInitialLoadComplete] = useState(false);
+
+  // Load categories and users from Cloud Firestore on mount
+  React.useEffect(() => {
+    const loadData = async () => {
+      setSyncStatus('loading');
+      try {
+        // Load categories
+        const categoriesDocRef = doc(db, 'schedule', 'categories');
+        const categoriesSnap = await getDoc(categoriesDocRef);
+        if (categoriesSnap.exists()) {
+          setCategories(categoriesSnap.data().data);
+        } else {
+          // If not in firestore, initialize it with current state
+          await setDoc(categoriesDocRef, { data: categories });
+        }
+
+        // Load users list
+        const usersDocRef = doc(db, 'schedule', 'users');
+        const usersSnap = await getDoc(usersDocRef);
+        if (usersSnap.exists()) {
+          setUsersList(usersSnap.data().data);
+        } else {
+          // Initialize it with current state
+          await setDoc(usersDocRef, { data: usersList });
+        }
+        setSyncStatus('saved');
+        setInitialLoadComplete(true);
+      } catch (error) {
+        console.error("Error loading data from Firestore:", error);
+        setSyncStatus('error');
+        // Fallback to local storage (already initialized in state)
+        setInitialLoadComplete(true);
+      }
+    };
+
+    loadData();
+  }, []);
+
+  // Save categories to Firestore on change (debounced)
+  React.useEffect(() => {
+    if (!initialLoadComplete) return;
+
+    setSyncStatus('saving');
+    const timer = setTimeout(async () => {
+      try {
+        const categoriesDocRef = doc(db, 'schedule', 'categories');
+        await setDoc(categoriesDocRef, { data: categories });
+        setSyncStatus('saved');
+      } catch (error) {
+        console.error("Error saving categories to Firestore:", error);
+        setSyncStatus('error');
+      }
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [categories, initialLoadComplete]);
+
+  // Save usersList to Firestore on change (debounced)
+  React.useEffect(() => {
+    if (!initialLoadComplete) return;
+
+    setSyncStatus('saving');
+    const timer = setTimeout(async () => {
+      try {
+        const usersDocRef = doc(db, 'schedule', 'users');
+        await setDoc(usersDocRef, { data: usersList });
+        setSyncStatus('saved');
+      } catch (error) {
+        console.error("Error saving users list to Firestore:", error);
+        setSyncStatus('error');
+      }
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [usersList, initialLoadComplete]);
+
+  // Persist State to LocalStorage (as offline cache)
+  React.useEffect(() => {
+    localStorage.setItem('gestor_categories', JSON.stringify(categories));
+  }, [categories]);
+
+  React.useEffect(() => {
+    localStorage.setItem('gestor_users_list', JSON.stringify(usersList));
+  }, [usersList]);
+
+  React.useEffect(() => {
+    if (currentUser) {
+      localStorage.setItem('gestor_current_user', JSON.stringify(currentUser));
+    } else {
+      localStorage.removeItem('gestor_current_user');
+    }
+  }, [currentUser]);
+
+  const handleAdminPasswordChange = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (adminPasswordInput.length < 4) {
+      setPasswordChangeError('La contraseña debe tener al menos 4 caracteres');
+      setPasswordChangeSuccess('');
+      return;
+    }
+    if (adminPasswordInput !== confirmAdminPasswordInput) {
+      setPasswordChangeError('Las contraseñas no coinciden');
+      setPasswordChangeSuccess('');
+      return;
+    }
+    
+    // Update admin user password in users list
+    const updatedUsers = usersList.map(u => u.email === 'daviidjg1991@gmail.com' ? { ...u, password: adminPasswordInput } : u);
+    setUsersList(updatedUsers);
+    
+    // Update current user context if logged in as admin
+    if (currentUser?.email === 'daviidjg1991@gmail.com') {
+      setCurrentUser(prev => prev ? { ...prev, password: adminPasswordInput } : null);
+    }
+
+    setPasswordChangeSuccess('Contraseña del administrador actualizada correctamente');
+    setPasswordChangeError('');
+    setAdminPasswordInput('');
+    setConfirmAdminPasswordInput('');
+  };
+  
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    const user = usersList.find(u => u.email === emailInput);
+    if (user) {
+      const expectedPassword = user.password || (user.role === 'admin' ? '637050616' : '123456');
+      if (passInput === expectedPassword) {
+         setCurrentUser(user);
+         setLoginError('');
+         setEmailInput('');
+         setPassInput('');
+         
+         // Check if current view is allowed for this user
+         if (!user.permissions.allowedViews.includes(currentView)) {
+            if (user.permissions.allowedViews.length > 0) {
+               setCurrentView(user.permissions.allowedViews[0]);
+            }
+         }
+      } else {
+         setLoginError('Contraseña incorrecta');
+      }
+    } else {
+      setLoginError('Usuario no encontrado');
+    }
+  };
+
+  const [newUserEmail, setNewUserEmail] = useState('');
+  const [newUserPassword, setNewUserPassword] = useState('');
+  const [newUserCanEdit, setNewUserCanEdit] = useState(false);
+  const [newUserViews, setNewUserViews] = useState<ViewPermission[]>(['grid']);
+
+  const handleAddUser = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newUserEmail.trim()) return;
+    setUsersList([...usersList, {
+      id: uuidv4(),
+      email: newUserEmail,
+      role: 'user',
+      permissions: {
+        canEdit: newUserCanEdit,
+        allowedViews: newUserViews
+      },
+      password: newUserPassword
+    }]);
+    setNewUserEmail('');
+    setNewUserPassword('');
+    setNewUserCanEdit(false);
+    setNewUserViews(['grid']);
+  };
+
+  const handleAddCategory = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCategoryName.trim()) return;
+    setCategories([
+      ...categories,
+      {
+        id: uuidv4(),
+        name: newCategoryName.trim().toUpperCase(),
+        color: PALETTE[categories.length % PALETTE.length],
+        rows: []
+      }
+    ]);
+    setNewCategoryName('');
+    setNewCategoryModalOpen(false);
+  };
+
+  const addEmployee = (catId: string, insertAtIdx?: number) => {
+    setCategories(prev => prev.map(c => {
+      if (c.id !== catId) return c;
+      const newRows = [...c.rows];
+      const newRow = { id: uuidv4(), type: 'employee' as const, name: '', rate: 10, status: '', role: '', shifts: {} };
+      if (insertAtIdx !== undefined) {
+        newRows.splice(insertAtIdx, 0, newRow);
+      } else {
+        newRows.push(newRow);
+      }
+      return { ...c, rows: newRows };
+    }));
+  };
+
+  const addSubheader = (catId: string, insertAtIdx?: number) => {
+    setCategories(prev => prev.map(c => {
+      if (c.id !== catId) return c;
+      const newRows = [...c.rows];
+      const newRow = { id: uuidv4(), type: 'subheader' as const, name: 'NUEVA SECCIÓN...', rate: 0, status: '', role: '', shifts: {} };
+      if (insertAtIdx !== undefined) {
+        newRows.splice(insertAtIdx, 0, newRow);
+      } else {
+        newRows.push(newRow);
+      }
+      return { ...c, rows: newRows };
+    }));
+  };
+
+  const deleteRow = (catId: string, rowId: string) => {
+    setCategories(prev => prev.map(c => {
+      if (c.id !== catId) return c;
+      return { ...c, rows: c.rows.filter(r => r.id !== rowId) };
+    }));
+  };
+
+  const deleteCategory = (catId: string) => {
+    if (window.confirm("¿Estás seguro de eliminar esta categoría completa?")) {
+      setCategories(prev => prev.filter(c => c.id !== catId));
+    }
+  };
+
+  // Reusable CSS patterns
+  const cellBorder = "border-[1px] border-slate-400 m-0 p-0 h-[20px]";
+  const headerCell = `border-[1px] border-slate-400 font-semibold px-1 py-0 h-[20px] align-middle`;
+  const plainInput = "block w-full h-[20px] border-none outline-none bg-transparent hover:bg-slate-50 focus:bg-blue-100 text-center text-[10px] sm:text-[11px] font-medium tracking-tighter transition-colors px-0 py-0 m-0 leading-tight";
+
+  // Global Sums
+  let globalCost = 0;
+  const dailyCosts = new Array(daysArray.length).fill(0);
+
+  const employeeStats = useMemo(() => {
+    const stats: Record<string, { 
+      name: string; 
+      hours: number; 
+      totalEuros: number; 
+      allPaid: boolean;
+      shiftsData: { day: Date; start: string; end: string; hours: number; rate: number; total: number; catName: string }[] 
+    }> = {};
+    
+    categories.forEach(cat => {
+      cat.rows.forEach(row => {
+        if (row.type === 'employee' && row.name.trim()) {
+          const nameKey = row.name.trim().toLowerCase();
+          
+          let rowHours = 0;
+          const rowShiftsData: typeof stats[string]['shiftsData'] = [];
+
+          for (let d = 0; d < daysArray.length; d++) {
+            const s = row.shifts[d];
+            if (s && s.start && s.end) {
+              const h = getHours(s.start, s.end);
+              rowHours += h;
+              rowShiftsData.push({
+                day: daysArray[d],
+                start: s.start,
+                end: s.end,
+                hours: h,
+                rate: row.rate,
+                total: h * row.rate,
+                catName: cat.name
+              });
+            }
+          }
+          
+          const rowTotal = rowHours * row.rate;
+
+          if (!stats[nameKey]) {
+            stats[nameKey] = { name: row.name.trim(), hours: 0, totalEuros: 0, allPaid: true, shiftsData: [] };
+          }
+          stats[nameKey].hours += rowHours;
+          stats[nameKey].totalEuros += rowTotal;
+          stats[nameKey].shiftsData.push(...rowShiftsData);
+          
+          if (row.status !== 'PAGADO') {
+            stats[nameKey].allPaid = false;
+          }
+        }
+      });
+    });
+
+    return Object.values(stats).sort((a, b) => a.name.localeCompare(b.name));
+  }, [categories, daysArray]);
+
+  const toggleEmployeePaidStatus = (empName: string, setPaid: boolean) => {
+    setCategories(prev => prev.map(cat => ({
+      ...cat,
+      rows: cat.rows.map(row => {
+        if (row.type === 'employee' && row.name.trim().toLowerCase() === empName.trim().toLowerCase()) {
+          return { ...row, status: setPaid ? 'PAGADO' : '' };
+        }
+        return row;
+      })
+    })));
+  };
+
+  const totalCostFromStats = useMemo(() => {
+    return employeeStats.reduce((sum, emp) => sum + emp.totalEuros, 0);
+  }, [employeeStats]);
+
+  const formatVisualHour = (h: number) => {
+    const val = h >= 24 ? h - 24 : h;
+    return val.toString().padStart(2, '0');
+  };
+
+  const visualGroups = useMemo(() => {
+    const groups: { catId: string; catName: string; catColor: string; employees: any[] }[] = [];
+    const catMap = new Map<string, any>();
+    const empMap = new Map<string, any>();
+
+    categories.forEach(cat => {
+      cat.rows.forEach(row => {
+        if (row.type === 'employee' && row.name.trim()) {
+           const nameKey = row.name.trim().toLowerCase();
+           
+           const shift = row.shifts[selectedDayIdx];
+           let startVal = -1;
+           let endVal = -1;
+           if (shift && shift.start && shift.end) {
+              const startParts = shift.start.split(':').map(Number);
+              const endParts = shift.end.split(':').map(Number);
+              startVal = startParts[0] + startParts[1]/60;
+              endVal = endParts[0] + endParts[1]/60;
+              
+              if (startVal < 5) startVal += 24;
+              if (endVal <= startVal && endVal < 12) endVal += 24;
+              if (endVal <= startVal) endVal += 24;
+           }
+
+           if (!empMap.has(nameKey)) {
+             const empRecord = {
+               id: row.id,
+               name: row.name,
+               catId: cat.id,
+               role: row.role || '',
+               shifts: [] as { start: number; end: number; color: string; catId: string; rowId: string }[]
+             };
+             empMap.set(nameKey, empRecord);
+
+             if (!catMap.has(cat.id)) {
+                const group = { catId: cat.id, catName: cat.name, catColor: cat.color, employees: [] as any[] };
+                catMap.set(cat.id, group);
+                groups.push(group);
+             }
+             catMap.get(cat.id).employees.push(empRecord);
+           } else {
+             // If employee already exists, just update role if it was empty
+             const existing = empMap.get(nameKey);
+             if (!existing.role && row.role) existing.role = row.role;
+           }
+
+           if (startVal >= 0 && endVal >= 0) {
+             empMap.get(nameKey).shifts.push({ start: startVal, end: endVal, color: cat.color, catId: cat.id, rowId: row.id });
+           }
+        }
+      });
+    });
+
+    return groups;
+  }, [categories, selectedDayIdx]);
+
+  const visualHours = useMemo(() => {
+    let minH = 34; // max possible
+    let maxH = 0;  // min possible
+    let hasShifts = false;
+
+    visualGroups.forEach(group => {
+      group.employees.forEach(emp => {
+        emp.shifts.forEach((s: any) => {
+          const shiftStart = Math.floor(s.start);
+          const shiftEnd = Math.ceil(s.end);
+          if (shiftStart < minH) minH = shiftStart;
+          if (shiftEnd > maxH) maxH = shiftEnd;
+          hasShifts = true;
+        });
+      });
+    });
+
+    if (!hasShifts) {
+      return Array.from({length: 12}, (_, i) => 8 + i);
+    }
+    
+    // Add 1 hour buffer on each end
+    minH = Math.max(5, minH - 1);
+    maxH = Math.min(34, maxH); // Math.ceil already provides 1 empty box after
+
+    if (minH > maxH) {
+        minH = 8;
+        maxH = 20;
+    }
+
+    const length = maxH - minH + 1;
+    return Array.from({ length }, (_, i) => minH + i);
+  }, [visualGroups]);
+
+
+  if (!currentUser) {
+    return (
+      <div className="flex flex-col h-screen w-full bg-slate-50 font-sans items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-sm border border-slate-200">
+          <div className="flex flex-col items-center mb-8">
+            <div className="bg-blue-600 p-3 rounded-xl text-white mb-4 shadow-lg shadow-blue-200">
+              <LayoutGrid size={32} />
+            </div>
+            <h1 className="text-2xl font-bold text-slate-800 text-center leading-tight">Gestor de Horarios</h1>
+            <p className="text-slate-500 text-sm mt-1">Inicia sesión para continuar</p>
+          </div>
+          
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-1">Email</label>
+              <input 
+                autoFocus
+                type="email" 
+                value={emailInput}
+                onChange={(e) => setEmailInput(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                placeholder="usuario@ejemplo.com"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-1">Contraseña</label>
+              <input 
+                type="password" 
+                value={passInput}
+                onChange={(e) => setPassInput(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                placeholder="••••••••"
+                required
+              />
+            </div>
+            {loginError && (
+              <p className="text-red-500 text-sm font-medium">{loginError}</p>
+            )}
+            <button 
+              type="submit"
+              className="w-full mt-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-bold shadow-sm"
+            >
+              Entrar
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col h-screen w-full bg-slate-100 font-sans overflow-hidden">
+      {/* Top Banner Toolbar */}
+      <div className="bg-white p-4 border-b shadow-sm shrink-0 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between lg:px-6">
+        {/* Left: Logo and User controls on mobile */}
+        <div className="flex items-center justify-between lg:justify-start gap-3 w-full lg:w-auto">
+          <div className="flex items-center gap-3 text-slate-800">
+            <div className="bg-blue-600 p-2 rounded-lg text-white">
+              <LayoutGrid size={24} />
+            </div>
+            <div>
+              <h1 className="text-lg md:text-xl font-bold leading-tight">Gestor de Horarios</h1>
+              <p className="text-[10px] md:text-xs text-slate-500">Formato Plantilla de Excel</p>
+            </div>
+          </div>
+          
+          {/* User controls on mobile */}
+          <div className="flex items-center gap-2 lg:hidden">
+            {currentUser && (
+              <>
+                <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-semibold select-none border border-slate-200 bg-slate-50/50">
+                  {syncStatus === 'loading' && <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>}
+                  {syncStatus === 'saving' && <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-bounce"></span>}
+                  {syncStatus === 'saved' && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>}
+                  {syncStatus === 'error' && <span className="w-1.5 h-1.5 rounded-full bg-red-500"></span>}
+                  {syncStatus === 'idle' && <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>}
+                </div>
+                {isAdmin && (
+                  <button
+                    onClick={() => setSettingsModalOpen(true)}
+                    className="bg-slate-800 hover:bg-slate-900 text-white p-2 rounded-lg transition-all shadow-sm"
+                    title="Ajustes de Administrador"
+                  >
+                    <Settings size={16} />
+                  </button>
+                )}
+                <button
+                  onClick={() => { setCurrentUser(null); setSettingsModalOpen(false); }}
+                  className="text-slate-400 hover:text-red-500 p-2 rounded-lg transition-colors"
+                  title="Cerrar sesión"
+                >
+                  <LogOut size={18} />
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Center: View Switcher */}
+        <div className="flex justify-center w-full lg:w-auto">
+          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200 w-full lg:w-auto">
+            {(!currentUser || currentUser.permissions.allowedViews.includes('grid')) && (
+              <button 
+                onClick={() => setCurrentView('grid')} 
+                className={`flex-1 lg:flex-initial text-center px-3 md:px-4 py-1.5 rounded-md text-xs md:text-sm font-semibold transition-colors ${currentView === 'grid' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+              >
+                PLANTILLA
+              </button>
+            )}
+            {(!currentUser || currentUser.permissions.allowedViews.includes('visual')) && (
+              <button 
+                onClick={() => setCurrentView('visual')} 
+                className={`flex-1 lg:flex-initial text-center px-3 md:px-4 py-1.5 rounded-md text-xs md:text-sm font-semibold transition-colors ${currentView === 'visual' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+              >
+                VISUAL
+              </button>
+            )}
+            {(!currentUser || currentUser.permissions.allowedViews.includes('summary')) && (
+              <button 
+                onClick={() => setCurrentView('summary')} 
+                className={`flex-1 lg:flex-initial text-center px-3 md:px-4 py-1.5 rounded-md text-xs md:text-sm font-semibold transition-colors ${currentView === 'summary' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+              >
+                RESUMEN
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Right: Date filter, New category, Zoom, User info */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between lg:justify-end gap-3 lg:gap-4 w-full lg:w-auto">
+          <div className="flex items-center gap-3 w-full sm:w-auto">
+            <Calendar className="text-slate-400 hidden sm:block" size={18} />
+            <div className="flex flex-1 sm:flex-initial flex-col min-w-[110px]">
+              <label className="text-[9px] font-semibold text-slate-500 uppercase">Inicio</label>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => {
+                  setStartDate(e.target.value);
+                  if (new Date(e.target.value) > new Date(endDate)) {
+                    setEndDate(e.target.value);
+                  }
+                }}
+                className="text-xs md:text-sm bg-slate-50 border border-slate-200 rounded px-2 py-1 outline-none focus:border-blue-500 w-full"
+              />
+            </div>
+            <div className="flex flex-1 sm:flex-initial flex-col min-w-[110px]">
+              <label className="text-[9px] font-semibold text-slate-500 uppercase">Fin</label>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                min={startDate}
+                className="text-xs md:text-sm bg-slate-50 border border-slate-200 rounded px-2 py-1 outline-none focus:border-blue-500 w-full"
+              />
+            </div>
+          </div>
+
+          {currentView === 'grid' && (
+            <div className="flex items-center gap-2 bg-slate-100 rounded-md p-1.5 px-3 border border-slate-200 w-full sm:w-auto justify-center">
+              <ZoomOut size={16} className="text-slate-400" />
+              <input 
+                type="range" 
+                min="20" 
+                max="200" 
+                step="5"
+                value={gridZoom}
+                onChange={(e) => setGridZoom(Number(e.target.value))}
+                className="w-full sm:w-24 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                title="Ajustar Zoom de Planilla"
+              />
+              <ZoomIn size={16} className="text-slate-400" />
+              <div className="text-xs font-bold text-slate-600 w-10 text-right select-none">{gridZoom}%</div>
+            </div>
+          )}
+
+          <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
+            {canEdit && (
+              <button
+                onClick={() => setNewCategoryModalOpen(true)}
+                className="flex-1 sm:flex-initial bg-blue-600 hover:bg-blue-700 text-white text-xs md:text-sm font-semibold px-3 md:px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition-all shadow-sm"
+              >
+                <Plus size={14} />
+                <span>Nueva Categoría</span>
+              </button>
+            )}
+
+            {currentUser && (
+              <div className="hidden lg:flex items-center gap-2">
+                {/* Sync Status Badge */}
+                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold select-none border border-slate-200 bg-slate-50/50">
+                  {syncStatus === 'loading' && (
+                    <>
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
+                      <span className="text-blue-600 font-medium">Sincronizando...</span>
+                    </>
+                  )}
+                  {syncStatus === 'saving' && (
+                    <>
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-bounce"></span>
+                      <span className="text-amber-600 font-medium">Guardando...</span>
+                    </>
+                  )}
+                  {syncStatus === 'saved' && (
+                    <>
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                      <span className="text-emerald-600 font-medium">Nube al día</span>
+                    </>
+                  )}
+                  {syncStatus === 'error' && (
+                    <>
+                      <span className="w-1.5 h-1.5 rounded-full bg-red-500"></span>
+                      <span className="text-red-600 font-medium">Error de Red</span>
+                    </>
+                  )}
+                  {syncStatus === 'idle' && (
+                    <>
+                      <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+                      <span className="text-slate-500 font-medium">Conectado</span>
+                    </>
+                  )}
+                </div>
+
+                <span className="text-sm font-semibold text-slate-700 max-w-[120px] truncate" title={currentUser.email}>
+                   {currentUser.email.split('@')[0]}
+                </span>
+                {isAdmin && (
+                  <button
+                    onClick={() => setSettingsModalOpen(true)}
+                    className="bg-slate-800 hover:bg-slate-900 text-white text-sm font-semibold px-3 py-2 rounded-lg flex items-center gap-2 transition-all shadow-sm"
+                    title="Ajustes de Administrador"
+                  >
+                    <Settings size={16} />
+                  </button>
+                )}
+                <button
+                  onClick={() => { setCurrentUser(null); setSettingsModalOpen(false); }}
+                  className="text-slate-400 hover:text-red-500 p-2 rounded-lg transition-colors"
+                  title="Cerrar sesión"
+                >
+                  <LogOut size={18} />
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Main Content Area */}
+      {currentView === 'visual' ? (
+        <div className="flex-1 overflow-auto bg-slate-50 p-6 custom-scrollbar relative flex flex-col">
+          <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between bg-white p-3 rounded-lg shadow-sm border border-slate-200 gap-3 shrink-0">
+            <div className="relative">
+              <h2 
+                className="text-lg font-bold text-slate-800 uppercase tracking-widest cursor-pointer hover:text-blue-600 transition-colors select-none flex items-center gap-2"
+                onClick={() => setDaySelectPopoverOpen(!daySelectPopoverOpen)}
+              >
+                {formatDateDay(daysArray[selectedDayIdx])}
+                <ChevronDown size={20} className={`transform transition-transform ${daySelectPopoverOpen ? 'rotate-180' : ''}`} />
+              </h2>
+              {daySelectPopoverOpen && (
+                <>
+                  <div 
+                    className="fixed inset-0 z-40"
+                    onClick={() => setDaySelectPopoverOpen(false)}
+                  ></div>
+                  <div className="absolute top-full left-0 mt-2 bg-white rounded-lg shadow-xl border border-slate-200 z-50 w-56 max-h-64 overflow-y-auto py-1 custom-scrollbar">
+                    {daysArray.map((d, idx) => (
+                      <button
+                        key={idx}
+                        className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-50 transition-colors ${idx === selectedDayIdx ? 'bg-blue-50 text-blue-700 font-bold' : 'text-slate-700 font-medium'}`}
+                        onClick={() => {
+                          setSelectedDayIdx(idx);
+                          setDaySelectPopoverOpen(false);
+                        }}
+                      >
+                       {formatDateDay(d)}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2 items-center w-full sm:w-auto justify-between sm:justify-end">
+              <div className="flex items-center bg-slate-100 rounded-md p-1 border border-slate-200 w-full sm:w-auto justify-center">
+                <button 
+                  onClick={() => setVisualZoom(prev => Math.max(100, prev - 25))}
+                  className="p-1 hover:bg-white hover:text-blue-600 rounded text-slate-500 transition shadow-sm bg-slate-50 border border-slate-200/50"
+                  title="Reducir"
+                >
+                  <ZoomOut size={16} />
+                </button>
+                <div className="px-2 text-xs font-bold text-slate-600 w-16 text-center select-none" title="Zoom de tabla">{visualZoom}%</div>
+                <button 
+                  onClick={() => setVisualZoom(prev => Math.min(400, prev + 25))}
+                  className="p-1 hover:bg-white hover:text-blue-600 rounded text-slate-500 transition shadow-sm bg-slate-50 border border-slate-200/50"
+                  title="Ampliar"
+                >
+                  <ZoomIn size={16} />
+                </button>
+              </div>
+              <div className="flex gap-2 w-full sm:w-auto">
+                <button 
+                  onClick={() => setSelectedDayIdx(prev => Math.max(0, prev - 1))}
+                  disabled={selectedDayIdx === 0}
+                  className="flex-1 sm:flex-initial px-4 py-1.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 rounded-md font-semibold text-slate-700 transition text-xs md:text-sm text-center"
+                >
+                  Día Anterior
+                </button>
+                <button 
+                  onClick={() => setSelectedDayIdx(prev => Math.min(daysArray.length - 1, prev + 1))}
+                  disabled={selectedDayIdx === daysArray.length - 1}
+                  className="flex-1 sm:flex-initial px-4 py-1.5 bg-blue-100 hover:bg-blue-200 text-blue-700 disabled:opacity-50 disabled:bg-slate-100 disabled:text-slate-400 rounded-md font-semibold transition text-xs md:text-sm text-center"
+                >
+                  Siguiente Día
+                </button>
+              </div>
+            </div>
+          </div>
+          
+          <div className="flex-1 overflow-auto bg-white border border-slate-300 shadow-sm custom-scrollbar relative min-h-0">
+            <table className="border-collapse text-[11px] table-fixed" style={{ width: `${visualZoom}%`, minWidth: '100%' }}>
+              <thead className="sticky top-0 z-20 bg-white shadow-sm">
+                <tr>
+                  <th className={`${headerCell} bg-slate-200 w-6 border-r-0 sticky left-0 z-30 shadow-[1px_0_0_#cbd5e1]`}></th>
+                  <th className={`${headerCell} bg-slate-200 w-40 text-left px-1 sticky left-[24px] z-30 shadow-[2px_0_4px_-2px_#cbd5e1]`}>PERSONAL</th>
+                  {visualHours.map(h => (
+                    <th key={h} className={`${headerCell} bg-slate-100 font-bold px-0 mx-0 text-center tracking-tighter border-slate-300 text-[10px]`}>
+                      {formatVisualHour(h)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {visualGroups.map(group => {
+                  if (group.employees.length === 0) return null;
+
+                  return (
+                    <React.Fragment key={group.catId}>
+                      {group.employees.map((emp, rowIdx) => {
+                        return (
+                          <tr key={emp.id} className="h-[20px] hover:bg-slate-50">
+                            {rowIdx === 0 && (
+                              <td 
+                                rowSpan={group.employees.length} 
+                                className={`${cellBorder} border-slate-400 relative sticky left-0 z-10 w-6 p-0`}
+                                style={{ backgroundColor: group.catColor + '60' }}
+                              >
+                                <div className="absolute inset-0 flex items-center justify-center overflow-hidden w-full">
+                                  <div 
+                                    className="font-bold text-[11px] text-black w-6 mx-auto tracking-widest uppercase flex items-center justify-center opacity-90 h-full p-0 m-0 whitespace-nowrap"
+                                    style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
+                                  >
+                                    {group.catName}
+                                  </div>
+                                </div>
+                              </td>
+                            )}
+                              <td className={`${cellBorder} px-1 font-bold bg-white text-slate-800 whitespace-nowrap overflow-hidden text-ellipsis text-[10px] sm:text-[11px] leading-tight align-middle sticky left-[24px] z-10 shadow-[2px_0_4px_-2px_#e2e8f0]`}>{emp.name.toUpperCase()}</td>
+                              {visualHours.map(h => {
+                                const overlappingShifts = emp.shifts.filter((s: any) => s.start < h + 1 && s.end > h);
+
+                                const isFilled = overlappingShifts.length > 0;
+                                const isOverlap = overlappingShifts.length > 1;
+                                const bgColor = isOverlap ? '#ef4444' : (isFilled ? overlappingShifts[0].color : '#ffffff');
+                                
+                                return (
+                                  <td 
+                                    key={h} 
+                                    className={`${cellBorder} text-center font-bold text-white text-[10px] ${canEdit ? 'cursor-pointer hover:opacity-80' : ''} transition-opacity`}
+                                    style={{ backgroundColor: bgColor }}
+                                    onClick={() => {
+                                      if (!canEdit) return;
+                                      if (isFilled) {
+                                        toggleVisualHour(emp.catId, emp.name, h, true);
+                                      } else {
+                                        toggleVisualHour(emp.catId, emp.name, h, false);
+                                      }
+                                    }}
+                                  >
+                                    {isFilled ? '1' : ''}
+                                  </td>
+                                );
+                              })}
+                          </tr>
+                        );
+                      })}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : currentView === 'summary' ? (
+        <div className="flex-1 overflow-auto bg-slate-50 p-4 md:p-6 custom-scrollbar">
+          <div className="max-w-4xl mx-auto bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+            <div className="px-6 py-5 border-b border-slate-200 bg-slate-50 flex flex-col sm:flex-row gap-4 sm:justify-between sm:items-center">
+              <div>
+                <h2 className="text-lg font-bold text-slate-800">Resumen de Trabajadores</h2>
+                <p className="text-sm text-slate-500">Total de horas y euros acumulados por empleado en este periodo.</p>
+              </div>
+              <div className="text-left sm:text-right">
+                <div className="text-sm text-slate-500 font-medium">Total Plantilla</div>
+                <div className="text-xl md:text-2xl font-black text-emerald-600">{totalCostFromStats > 0 ? `${totalCostFromStats.toFixed(2)} €` : '0.00 €'}</div>
+              </div>
+            </div>
+            {employeeStats.length === 0 ? (
+              <div className="p-12 text-center text-slate-500">
+                No hay trabajadores registrados con datos.
+              </div>
+            ) : (
+              <div className="overflow-x-auto w-full">
+                <table className="w-full text-left border-collapse min-w-[500px]">
+                  <thead>
+                    <tr>
+                      <th className="px-6 py-3 border-b text-xs md:text-sm font-semibold text-slate-600 bg-slate-50 uppercase tracking-widest">Trabajador</th>
+                      <th className="px-6 py-3 border-b text-xs md:text-sm font-semibold text-slate-600 bg-slate-50 uppercase tracking-widest text-right">Horas Totales</th>
+                      <th className="px-6 py-3 border-b text-xs md:text-sm font-semibold text-slate-600 bg-slate-50 uppercase tracking-widest text-right">Total a Cobrar</th>
+                      <th className="px-6 py-3 border-b text-xs md:text-sm font-semibold text-slate-600 bg-slate-50 uppercase tracking-widest text-center">Pagado</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {employeeStats.map((emp, idx) => (
+                      <tr 
+                        key={idx} 
+                        className="hover:bg-blue-50/50 transition-colors border-b border-slate-100 last:border-0 cursor-pointer"
+                        onClick={() => setSelectedEmployeeNameForModal(emp.name)}
+                      >
+                        <td className="px-6 py-4 text-sm font-bold text-slate-800">{emp.name}</td>
+                        <td className="px-6 py-4 text-sm font-medium text-slate-600 text-right">
+                          {formatDecimalHours(emp.hours)}h
+                        </td>
+                        <td className="px-6 py-4 text-sm font-bold text-emerald-600 text-right">
+                          {emp.totalEuros.toFixed(2)} €
+                        </td>
+                        <td className="px-6 py-4 text-center" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={emp.allPaid}
+                            onChange={(e) => toggleEmployeePaidStatus(emp.name, e.target.checked)}
+                            className="w-5 h-5 cursor-pointer accent-green-600 outline-none"
+                            disabled={!canEdit}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="flex-1 overflow-auto bg-[#c5d9f1] p-3 shadow-inner custom-scrollbar relative">
+          <div 
+            className="bg-white min-w-max shadow text-slate-800 relative z-0 inline-block"
+            style={{ zoom: gridZoom / 100 }}
+          >
+            <table className="w-auto border-collapse table-fixed text-[11px] select-text">
+              
+              {/* HEADERS TOP ROW */}
+            <thead className="sticky top-0 z-40">
+              <tr>
+                <th colSpan={3} className={`${headerCell} bg-[#f4b084] text-black w-52 uppercase tracking-wider sticky left-0 z-40 shadow-[1px_0_0_#e2e8f0]`}>
+                  Categoría / Empleados
+                </th>
+                <th className={`${headerCell} bg-[#f4b084] w-12 sticky left-[208px] z-40 shadow-[2px_0_4px_-2px_#cbd5e1]`} title="Precio € por hora">
+                  €/h
+                </th>
+                {daysArray.map((day, i) => (
+                  <th key={i} colSpan={3} className={`${headerCell} bg-[#f4b084] w-24 uppercase`}>
+                    {formatDateDay(day)}
+                  </th>
+                ))}
+                <th colSpan={3} className={`${headerCell} bg-[#f4b084] w-52`}>
+                  Totales
+                </th>
+              </tr>
+
+              {/* HEADERS SUB ROW */}
+              <tr>
+                <th className={`${headerCell} w-6 bg-slate-200 border-r-0 sticky left-0 z-40`}></th>
+                <th className={`${headerCell} w-6 bg-slate-200 border-l-0 text-slate-400 sticky left-[24px] z-40`}></th>
+                <th className={`${headerCell} w-40 bg-slate-200 sticky left-[48px] z-40 shadow-[1px_0_0_#e2e8f0]`}>Nombre</th>
+                <th className={`${headerCell} bg-slate-200 w-12 sticky left-[208px] z-40 shadow-[2px_0_4px_-2px_#cbd5e1]`}>Tarifa</th>
+                
+                {daysArray.map((_, i) => (
+                  <React.Fragment key={i}>
+                    <th className={`${headerCell} bg-slate-100 font-normal border-r border-slate-300 w-8 tracking-tighter`} title="Hora Entrada">h. en.</th>
+                    <th className={`${headerCell} bg-slate-100 font-normal border-r border-slate-300 w-8 tracking-tighter`} title="Hora Salida">h. sa.</th>
+                    <th className={`${headerCell} bg-slate-200 text-slate-600 font-semibold w-8`} title="Total Horas Día">t.h</th>
+                  </React.Fragment>
+                ))}
+
+                <th className={`${headerCell} bg-slate-200 w-14`}>t. Horas</th>
+                <th className={`${headerCell} bg-slate-200 w-16`}>Total €</th>
+                <th className={`${headerCell} bg-slate-200 w-20`}>Estado</th>
+              </tr>
+            </thead>
+
+            {/* BODY ROWS */}
+            <tbody>
+              {categories.map((cat, catIdx) => {
+                const totalRowSpan = cat.rows.length + 1; // + 1 for Add Line dummy row
+                return (
+                  <React.Fragment key={cat.id}>
+                    {cat.rows.map((row, rowIdx) => {
+                      // Computations for row totals
+                      let rowHoursDecimals = 0;
+                      if (row.type === 'employee') {
+                         for (let d = 0; d < daysArray.length; d++) {
+                           const s = row.shifts[d];
+                           if (s) {
+                              const hrs = getHours(s.start, s.end);
+                              rowHoursDecimals += hrs;
+                              dailyCosts[d] += hrs * row.rate; // accumulate into global day total
+                           }
+                         }
+                      }
+                      const rowTotalEuros = rowHoursDecimals * row.rate;
+                      globalCost += rowTotalEuros;
+
+                      const isDragOver = dragOverInfo?.catId === cat.id && dragOverInfo?.rowIdx === rowIdx;
+                      return (
+                        <tr 
+                          key={row.id} 
+                          className={`relative group h-[20px] ${isDragOver ? 'bg-blue-100' : 'hover:bg-blue-50/40'}`}
+                          draggable={canEdit}
+                          onDragStart={(e) => canEdit && handleDragStart(e, cat.id, rowIdx)}
+                          onDragOver={(e) => canEdit && handleDragOver(e, cat.id, rowIdx)}
+                          onDragLeave={handleDragLeave}
+                          onDrop={(e) => canEdit && handleDrop(e, cat.id, rowIdx)}
+                          onDragEnd={handleDragEnd}
+                        >
+                          {/* 1. Category Vertical Label (Only on 1st row of category) */}
+                          {rowIdx === 0 && (
+                            <td 
+                              rowSpan={totalRowSpan} 
+                              className={`${cellBorder} bg-opacity-70 group relative align-middle sticky left-0 z-30`}
+                              style={{ backgroundColor: cat.color }}
+                            >
+                              <div className="absolute inset-0 flex items-center justify-center overflow-hidden w-full">
+                                <div 
+                                  className="font-bold text-[13px] text-black w-6 mx-auto tracking-widest uppercase flex items-center justify-center py-0 opacity-90 h-full whitespace-nowrap"
+                                  style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
+                                >
+                                  {cat.name}
+                                </div>
+                              </div>
+                              {canEdit && (
+                                <button 
+                                  onClick={() => deleteCategory(cat.id)}
+                                  className="absolute top-1 left-1 opacity-0 group-hover:opacity-100 p-1 text-red-600 bg-white/80 rounded hover:bg-red-100 transition-all z-10 shadow cursor-pointer"
+                                  title="Eliminar Categoría"
+                                >
+                                  <Trash2 size={12} />
+                                </button>
+                              )}
+                            </td>
+                          )}
+
+                          {/* 2. Divider Blank space (matching screenshot aesthetic) */}
+                          <td className={`${cellBorder} w-6 sticky left-[24px] z-30`} style={{ backgroundColor: cat.color + '40' }}></td>
+
+                          {/* 3. Employee Name / Subheader */}
+                          <td className={`${cellBorder} relative max-w-[160px] font-semibold text-slate-800 ${row.type === 'subheader' ? 'bg-[#dcf3db]' : 'bg-white'} group/name sticky left-[48px] z-30 shadow-[1px_0_0_#e2e8f0]`}>
+                            <input 
+                              type="text" 
+                              value={row.name}
+                              onChange={(e) => updateRow(cat.id, row.id, r => ({...r, name: e.target.value}))}
+                              className={`${plainInput} text-left font-semibold uppercase px-2 truncate`}
+                              placeholder={row.type === 'employee' ? 'Nombre...' : 'TITULO SECCIÓN'}
+                              disabled={!canEdit}
+                            />
+                            {/* Hidden Delete Button (shows on hover) */}
+                            {canEdit && (
+                              <button 
+                                 onClick={() => deleteRow(cat.id, row.id)}
+                                 className="absolute -left-3 top-1 opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 bg-white shadow rounded-full p-0.5 z-40 transition-opacity"
+                              >
+                                 <Trash2 size={10} />
+                              </button>
+                            )}
+
+                            {/* Insertion Controls (shows on hover) */}
+                            {canEdit && (
+                              <div className="absolute right-0.5 top-[1px] bottom-[1px] hidden group-hover/name:flex items-center gap-0.5 bg-white/95 px-1 shadow-[0_0_8px_4px_rgba(255,255,255,0.95)] z-40 rounded border border-slate-100">
+                                 <button onClick={() => addEmployee(cat.id, rowIdx)} title="Empleado Arriba" className="flex items-center text-blue-600 hover:bg-blue-100 p-0.5 rounded transition">
+                                   <ChevronUp size={10} className="-mr-0.5" /><UserPlus size={10} />
+                                 </button>
+                                 <button onClick={() => addEmployee(cat.id, rowIdx + 1)} title="Empleado Abajo" className="flex items-center text-blue-600 hover:bg-blue-100 p-0.5 rounded transition">
+                                   <ChevronDown size={10} className="-mr-0.5" /><UserPlus size={10} />
+                                 </button>
+                                 <div className="w-[1px] h-3 bg-slate-300 mx-0.5"></div>
+                                 <button onClick={() => addSubheader(cat.id, rowIdx)} title="Sección Arriba" className="flex items-center text-emerald-600 hover:bg-emerald-100 p-0.5 rounded transition">
+                                   <ChevronUp size={10} className="-mr-0.5" /><FilePlus size={10} />
+                                 </button>
+                                 <button onClick={() => addSubheader(cat.id, rowIdx + 1)} title="Sección Abajo" className="flex items-center text-emerald-600 hover:bg-emerald-100 p-0.5 rounded transition">
+                                   <ChevronDown size={10} className="-mr-0.5" /><FilePlus size={10} />
+                                 </button>
+                              </div>
+                            )}
+                          </td>
+
+                          {/* 4. Rate (Skipped visual for subheaders) */}
+                          {row.type === 'subheader' ? (
+                            <td className={`${cellBorder} bg-[#dcf3db] sticky left-[208px] z-30 shadow-[2px_0_4px_-2px_#cbd5e1]`}></td>
+                          ) : (
+                            <td className={`${cellBorder} bg-white text-slate-500 sticky left-[208px] z-30 shadow-[2px_0_4px_-2px_#cbd5e1]`}>
+                              <input 
+                                type="number" 
+                                value={row.rate || ''}
+                                onChange={(e) => updateRow(cat.id, row.id, r => ({...r, rate: parseFloat(e.target.value) || 0}))}
+                                className={plainInput}
+                                min="0" step="0.5"
+                                placeholder="0"
+                                disabled={!canEdit}
+                              />
+                            </td>
+                          )}
+
+                          {/* 5. Shifts (Blocks of 3) or Empty for subheader */}
+                          {row.type === 'subheader' ? (
+                            <td colSpan={daysArray.length * 3 + 3} className={`${cellBorder} bg-[#dcf3db]`}></td>
+                          ) : (
+                            <>
+                              {daysArray.map((_, dayIdx) => {
+                                const s = row.shifts[dayIdx] || { start: '', end: '' };
+                                const dayHrs = getHours(s.start, s.end);
+                                const cellBgClass = "bg-white"; // Standard cell background
+                                
+                                return (
+                                  <React.Fragment key={dayIdx}>
+                                    <td className={`${cellBorder} ${cellBgClass}`}>
+                                      <input 
+                                        type="text" 
+                                        value={s.start}
+                                        onChange={(e) => handleShiftChange(cat.id, row.id, dayIdx, 'start', e.target.value)}
+                                        onBlur={(e) => handleShiftBlur(cat.id, row.id, dayIdx, 'start', e.target.value)}
+                                        className={plainInput} 
+                                        placeholder=""
+                                        disabled={!canEdit}
+                                      />
+                                    </td>
+                                    <td className={`${cellBorder} ${cellBgClass}`}>
+                                      <input 
+                                        type="text" 
+                                        value={s.end}
+                                        onChange={(e) => handleShiftChange(cat.id, row.id, dayIdx, 'end', e.target.value)}
+                                        onBlur={(e) => handleShiftBlur(cat.id, row.id, dayIdx, 'end', e.target.value)}
+                                        className={plainInput} 
+                                        placeholder=""
+                                        disabled={!canEdit}
+                                      />
+                                    </td>
+                                    <td className={`${cellBorder} bg-slate-200/50 text-slate-400 font-medium text-center align-middle select-none pointer-events-none`}>
+                                      {formatDecimalHours(dayHrs)}
+                                    </td>
+                                  </React.Fragment>
+                                );
+                              })}
+
+                              {/* 6. Finals (Total Hours, Total €, Status) */}
+                              <td className={`${cellBorder} bg-slate-200 font-bold text-center text-slate-800`}>
+                                {formatDecimalHours(rowHoursDecimals)}
+                              </td>
+                              <td className={`${cellBorder} text-center font-bold text-[12px] tabular-nums ${(rowTotalEuros > 0 && row.status === 'PAGADO') ? 'bg-green-400/90 text-white' : (rowTotalEuros > 0 ? 'bg-green-200 text-green-900' : 'bg-slate-100 text-slate-400')}`}>
+                                {rowTotalEuros > 0 ? `${rowTotalEuros.toFixed(2)} €` : ''}
+                              </td>
+                              <td className={`${cellBorder} bg-white`}>
+                                <select 
+                                  value={row.status}
+                                  onChange={(e) => updateRow(cat.id, row.id, r => ({...r, status: e.target.value}))}
+                                  className={`${plainInput} bg-transparent font-medium text-[10px] uppercase appearance-none`}
+                                  disabled={!canEdit}
+                                >
+                                  <option value="">--</option>
+                                  <option value="PAGADO">PAGADO</option>
+                                  <option value="PREPARADO">PREPARADO</option>
+                                </select>
+                              </td>
+                            </>
+                          )}
+                        </tr>
+                      );
+                    })}
+
+                    {/* Action Row per category */}
+                    <tr 
+                      className={`relative group h-[20px] ${dragOverInfo?.catId === cat.id && dragOverInfo?.rowIdx === cat.rows.length ? 'bg-blue-100' : 'bg-slate-50'}`}
+                      onDragOver={(e) => handleDragOver(e, cat.id, cat.rows.length)}
+                      onDragLeave={handleDragLeave}
+                      onDrop={(e) => handleDrop(e, cat.id, cat.rows.length)}
+                    >
+                      <td className={`${cellBorder} w-6 sticky left-[24px] z-30`} style={{ backgroundColor: cat.color + '40' }}></td>
+                      <td colSpan={2} className={`${cellBorder} p-0 sticky left-[48px] z-30 bg-slate-50 shadow-[2px_0_4px_-2px_#cbd5e1]`}>
+                        {canEdit && (
+                          <div className="flex items-center gap-2 px-1 text-blue-500 font-semibold opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button onClick={() => addEmployee(cat.id)} className="flex items-center hover:bg-blue-100 px-1 py-0 rounded transition text-[10px]">
+                              <Plus size={10} className="mr-1"/> EMPLEADO
+                            </button>
+                            <span className="text-slate-300 scale-75">|</span>
+                            <button onClick={() => addSubheader(cat.id)} className="flex items-center hover:bg-blue-100 px-1 py-0 rounded transition text-[10px]">
+                              <Plus size={10} className="mr-1"/> SECCIÓN
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                      <td colSpan={daysArray.length * 3 + 3} className={`${cellBorder} bg-slate-50/50`}></td>
+                    </tr>
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+
+            {/* GLOBAL TOTALS FOOTER */}
+            <tfoot className="sticky bottom-0 z-50 shadow-[0_-2px_4px_rgba(0,0,0,0.05)]">
+               <tr>
+                  {/* Spanning Left Columns */}
+                  <th colSpan={4} className={`${headerCell} bg-slate-800 text-white text-right px-4 uppercase tracking-widest sticky left-0 z-50 shadow-[2px_0_4px_-2px_#cbd5e1]`}>
+                    Total Carga Salarial Diaria
+                  </th>
+
+                  {/* Daily Total Euros */}
+                  {daysArray.map((_, i) => (
+                    <th key={i} colSpan={3} className={`${headerCell} bg-slate-700 text-white text-center tracking-wider tabular-nums`}>
+                       {dailyCosts[i] > 0 ? `${dailyCosts[i].toFixed(2)} €` : '-'}
+                    </th>
+                  ))}
+
+                  {/* Empty gap under hours */}
+                  <th className={`${headerCell} bg-slate-800`}></th>
+
+                  {/* Global Euro Total */}
+                  <th colSpan={1} className={`${headerCell} bg-emerald-500 text-slate-900 border-emerald-600 text-sm tracking-tight tabular-nums font-black`}>
+                     {globalCost > 0 ? `${globalCost.toFixed(2)} €` : '0.00 €'}
+                  </th>
+                  <th className={`${headerCell} bg-slate-800`}></th>
+               </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+      )}
+      
+      {/* Scrollbar styling overrides inline */}
+      <style>{`
+        .custom-scrollbar::-webkit-scrollbar { height: 12px; width: 12px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 8px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 8px; border: 2px solid #f1f5f9; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+      `}</style>
+
+      {/* Employee Details Modal */}
+      {selectedEmployeeNameForModal && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-2xl max-h-[90vh] flex flex-col">
+            <div className="flex justify-between items-center mb-5 border-b border-slate-100 pb-4">
+              <div>
+                <h3 className="text-xl font-bold text-slate-800">{selectedEmployeeNameForModal}</h3>
+                <p className="text-sm text-slate-500">Desglose de horas trabajadas</p>
+              </div>
+              <button onClick={() => setSelectedEmployeeNameForModal(null)} className="text-slate-400 hover:text-slate-600 transition-colors p-2 bg-slate-50 rounded-full hover:bg-slate-100">
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="flex-1 overflow-auto custom-scrollbar pr-2 mb-4">
+              <table className="w-full text-left border-collapse">
+                <thead className="sticky top-0 bg-white shadow-sm z-10">
+                  <tr>
+                    <th className="py-2 px-3 border-b text-xs font-semibold text-slate-500 uppercase">Día</th>
+                    <th className="py-2 px-3 border-b text-xs font-semibold text-slate-500 uppercase">Categoría</th>
+                    <th className="py-2 px-3 border-b text-xs font-semibold text-slate-500 uppercase text-center">Horario</th>
+                    <th className="py-2 px-3 border-b text-xs font-semibold text-slate-500 uppercase text-right">Horas</th>
+                    <th className="py-2 px-3 border-b text-xs font-semibold text-slate-500 uppercase text-right">Tarifa</th>
+                    <th className="py-2 px-3 border-b text-xs font-semibold text-slate-500 uppercase text-right">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {employeeStats.find(e => e.name === selectedEmployeeNameForModal)?.shiftsData.map((shift, i) => (
+                    <tr key={i} className="hover:bg-slate-50 border-b border-slate-50 last:border-0 text-sm border-b border-slate-100">
+                      <td className="py-3 px-3 text-slate-800 font-medium whitespace-nowrap capitalize">{formatDateDay(shift.day)}</td>
+                      <td className="py-3 px-3 text-slate-600 font-medium">{shift.catName}</td>
+                      <td className="py-3 px-3 text-slate-600 text-center">{shift.start} - {shift.end}</td>
+                      <td className="py-3 px-3 text-slate-800 font-medium text-right">{formatDecimalHours(shift.hours)}h</td>
+                      <td className="py-3 px-3 text-slate-600 text-right">{shift.rate} €/h</td>
+                      <td className="py-3 px-3 text-emerald-600 font-bold text-right">{shift.total.toFixed(2)} €</td>
+                    </tr>
+                  ))}
+                  {employeeStats.find(e => e.name === selectedEmployeeNameForModal)?.shiftsData.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="py-8 text-center text-slate-500 italic">No hay turnos registrados en este periodo.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="border-t border-slate-100 pt-4 flex justify-between items-center bg-slate-50 p-4 rounded-lg">
+              <div className="text-slate-600 font-semibold">
+                Total acumulado:
+              </div>
+              <div className="flex gap-6 text-right">
+                <div>
+                   <span className="text-xs text-slate-500 uppercase block leading-none mb-1">Horas</span>
+                   <span className="text-lg font-bold text-slate-800">{formatDecimalHours(employeeStats.find(e => e.name === selectedEmployeeNameForModal)?.hours || 0)}h</span>
+                </div>
+                <div>
+                   <span className="text-xs text-slate-500 uppercase block leading-none mb-1">Euros</span>
+                   <span className="text-xl font-black text-emerald-600">{(employeeStats.find(e => e.name === selectedEmployeeNameForModal)?.totalEuros || 0).toFixed(2)} €</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Category Modal */}
+      {newCategoryModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm">
+            <div className="flex justify-between items-center mb-5">
+              <h3 className="text-lg font-bold text-slate-800">Nueva Categoría</h3>
+              <button onClick={() => setNewCategoryModalOpen(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
+                <X size={20} />
+              </button>
+            </div>
+            <form onSubmit={handleAddCategory}>
+              <input 
+                autoFocus
+                type="text" 
+                value={newCategoryName}
+                onChange={(e) => setNewCategoryName(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none mb-6"
+                placeholder="Ej. COCINA..."
+                required
+              />
+              <div className="flex justify-end gap-3">
+                <button 
+                  type="button" 
+                  onClick={() => setNewCategoryModalOpen(false)}
+                  className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors font-medium text-sm"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  type="submit"
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors shadow-sm font-semibold text-sm"
+                >
+                  Añadir
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Settings Modal (Admin Only) */}
+      {settingsModalOpen && isAdmin && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] flex items-center justify-center z-[60]">
+          <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-2xl flex flex-col max-h-[90vh]">
+            <div className="flex justify-between items-center mb-5 shrink-0 border-b pb-4">
+              <div className="flex items-center gap-2">
+                <Settings size={22} className="text-slate-800" />
+                <h3 className="text-xl font-bold text-slate-800">Ajustes Generales</h3>
+              </div>
+              <button onClick={() => setSettingsModalOpen(false)} className="text-slate-400 hover:text-slate-600 transition-colors bg-slate-100 hover:bg-slate-200 p-1 rounded-full">
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="flex gap-4 mb-4 border-b">
+              <button 
+                onClick={() => setSettingsTab('general')}
+                className={`py-2 px-4 border-b-2 font-medium text-sm transition-colors ${settingsTab === 'general' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
+              >General</button>
+              <button 
+                onClick={() => setSettingsTab('users')}
+                className={`py-2 px-4 border-b-2 font-medium text-sm transition-colors ${settingsTab === 'users' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
+              >Usuarios y Permisos</button>
+            </div>
+
+            <div className="flex-1 overflow-auto custom-scrollbar mb-4 shrink-0">
+               {settingsTab === 'general' ? (
+                 <div className="p-6 bg-slate-50 border border-slate-200 rounded-xl max-w-md mx-auto my-6 shadow-sm">
+                   <h4 className="font-bold text-slate-800 mb-4 text-sm flex items-center gap-2">
+                     <Lock size={16} className="text-blue-600" />
+                     Cambiar Contraseña de Administrador
+                   </h4>
+                   <form onSubmit={handleAdminPasswordChange} className="space-y-4">
+                     <div>
+                       <label className="block text-xs font-semibold text-slate-600 mb-1">Nueva Contraseña</label>
+                       <input 
+                         type="password"
+                         value={adminPasswordInput}
+                         onChange={(e) => {
+                           setAdminPasswordInput(e.target.value);
+                           setPasswordChangeError('');
+                           setPasswordChangeSuccess('');
+                         }}
+                         placeholder="Ingresa la nueva contraseña..."
+                         className="w-full px-3 py-1.5 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-white"
+                         required
+                       />
+                     </div>
+                     <div>
+                       <label className="block text-xs font-semibold text-slate-600 mb-1">Confirmar Nueva Contraseña</label>
+                       <input 
+                         type="password"
+                         value={confirmAdminPasswordInput}
+                         onChange={(e) => {
+                           setConfirmAdminPasswordInput(e.target.value);
+                           setPasswordChangeError('');
+                           setPasswordChangeSuccess('');
+                         }}
+                         placeholder="Confirma la nueva contraseña..."
+                         className="w-full px-3 py-1.5 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-white"
+                         required
+                       />
+                     </div>
+                     {passwordChangeError && (
+                       <p className="text-red-500 text-xs font-medium">{passwordChangeError}</p>
+                     )}
+                     {passwordChangeSuccess && (
+                       <p className="text-green-600 text-xs font-medium">{passwordChangeSuccess}</p>
+                     )}
+                     <button 
+                       type="submit" 
+                       className="w-full bg-blue-600 text-white px-4 py-2 rounded text-sm font-semibold hover:bg-blue-700 transition shadow-sm cursor-pointer"
+                     >
+                       Guardar Contraseña
+                     </button>
+                   </form>
+                 </div>
+               ) : (
+                 <div className="flex flex-col gap-6">
+                    {/* Add user form */}
+                    <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
+                      <h4 className="font-bold text-slate-800 mb-3 text-sm">Añadir Nuevo Usuario</h4>
+                      <form onSubmit={handleAddUser} className="flex flex-col gap-3">
+                        <div className="flex flex-col md:flex-row gap-3">
+                          <input 
+                            type="email"
+                            value={newUserEmail}
+                            onChange={(e) => setNewUserEmail(e.target.value)}
+                            placeholder="Email del usuario..."
+                            className="flex-1 px-3 py-1.5 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-white"
+                            required
+                          />
+                          <input 
+                            type="text"
+                            value={newUserPassword}
+                            onChange={(e) => setNewUserPassword(e.target.value)}
+                            placeholder="Contraseña..."
+                            className="flex-1 px-3 py-1.5 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-white"
+                          />
+                          <label className="flex items-center justify-center gap-2 text-sm font-medium text-slate-700 bg-white px-3 py-1.5 border border-slate-300 rounded cursor-pointer select-none">
+                            <input 
+                              type="checkbox" 
+                              checked={newUserCanEdit}
+                              onChange={(e) => setNewUserCanEdit(e.target.checked)}
+                              className="w-4 h-4 text-blue-600 rounded"
+                            />
+                            Puede Modificar
+                          </label>
+                        </div>
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 bg-white p-3 rounded border border-slate-300">
+                           <span className="text-sm font-semibold text-slate-700">Pestañas permitidas:</span>
+                           <div className="flex flex-wrap gap-3">
+                               {['grid', 'visual', 'summary'].map((view) => (
+                                 <label key={view} className="flex items-center gap-1.5 text-sm cursor-pointer select-none">
+                                   <input 
+                                     type="checkbox"
+                                     checked={newUserViews.includes(view as ViewPermission)}
+                                     onChange={(e) => {
+                                       if (e.target.checked) {
+                                         setNewUserViews([...newUserViews, view as ViewPermission]);
+                                       } else {
+                                         setNewUserViews(newUserViews.filter(v => v !== view));
+                                       }
+                                     }}
+                                     className="w-4 h-4 text-blue-600 rounded"
+                                   />
+                                   {view === 'grid' ? 'PLANTILLA' : view === 'visual' ? 'VISUAL' : 'RESUMEN'}
+                                 </label>
+                               ))}
+                            </div>
+                        </div>
+                        <button type="submit" className="self-end bg-blue-600 text-white px-4 py-1.5 rounded text-sm font-semibold hover:bg-blue-700 transition cursor-pointer">
+                           Añadir Usuario
+                        </button>
+                      </form>
+                    </div>
+
+                    {/* Users list */}
+                    <div>
+                      <h4 className="font-bold text-slate-800 mb-3 text-sm">Lista de Usuarios</h4>
+                      <div className="border border-slate-200 rounded-lg overflow-x-auto w-full">
+                        <table className="w-full text-left text-sm border-collapse min-w-[600px]">
+                          <thead className="bg-slate-100 border-b border-slate-200">
+                            <tr>
+                              <th className="px-4 py-2 font-semibold text-slate-600">Email</th>
+                              <th className="px-4 py-2 font-semibold text-slate-600 text-center">Permiso</th>
+                              <th className="px-4 py-2 font-semibold text-slate-600">Pestañas</th>
+                              <th className="px-4 py-2 font-semibold text-slate-600">Contraseña</th>
+                              <th className="px-4 py-2 font-semibold text-slate-600 text-right">Acciones</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {usersList.map((user) => (
+                              <tr key={user.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
+                                <td className="px-4 py-3 font-medium text-slate-800">
+                                  {user.email}
+                                  {user.role === 'admin' && <span className="ml-2 text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded uppercase font-bold tracking-wider">Admin</span>}
+                                </td>
+                                <td className="px-4 py-3 text-center">
+                                  {user.role === 'admin' ? (
+                                    <span className="text-slate-500 font-medium">Todo</span>
+                                  ) : (
+                                    <span className={`px-2 py-1 rounded text-xs font-bold ${user.permissions.canEdit ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-700'}`}>
+                                      {user.permissions.canEdit ? 'EDICIÓN' : 'LECTURA'}
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3 text-slate-600 text-xs">
+                                  {user.role === 'admin' ? 'Todas' : user.permissions.allowedViews.map(v => v === 'grid' ? 'PLANTILLA' : v === 'visual' ? 'VISUAL' : 'RESUMEN').join(', ')}
+                                </td>
+                                <td className="px-4 py-3">
+                                  <input 
+                                    type="text" 
+                                    value={user.password || ''}
+                                    onChange={(e) => {
+                                      const newPassword = e.target.value;
+                                      setUsersList(usersList.map(u => u.id === user.id ? { ...u, password: newPassword } : u));
+                                      if (user.id === currentUser?.id) {
+                                        setCurrentUser(prev => prev ? { ...prev, password: newPassword } : null);
+                                      }
+                                    }}
+                                    className="px-2 py-1 border border-slate-300 rounded text-xs w-28 focus:ring-1 focus:ring-blue-500 outline-none"
+                                    placeholder={user.role === 'admin' ? '637050616' : 'Sin pass'}
+                                  />
+                                </td>
+                                <td className="px-4 py-3 text-right">
+                                  {user.role !== 'admin' && (
+                                    <button 
+                                      onClick={() => setUsersList(usersList.filter(u => u.id !== user.id))}
+                                      className="text-red-400 hover:text-red-600 p-1"
+                                      title="Eliminar usuario"
+                                    >
+                                      <Trash2 size={16} />
+                                    </button>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                 </div>
+               )}
+            </div>
+            
+            <div className="flex justify-end gap-3 shrink-0 pt-4 border-t">
+              <button 
+                type="button" 
+                onClick={() => setSettingsModalOpen(false)}
+                className="px-5 py-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors font-bold text-sm bg-slate-50 border border-slate-200"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}
+
