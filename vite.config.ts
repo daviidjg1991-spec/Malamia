@@ -6,7 +6,21 @@ import {defineConfig} from 'vite';
 export default defineConfig(() => {
   return {
     base: './',
-    plugins: [react(), tailwindcss()],
+    plugins: [
+      react(),
+      tailwindcss(),
+      {
+        name: 'dev-html-redirect',
+        configureServer(server) {
+          server.middlewares.use((req, res, next) => {
+            if (req.url === '/' || req.url === '/index.html') {
+              req.url = '/dev.html';
+            }
+            next();
+          });
+        }
+      }
+    ],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
