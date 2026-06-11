@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Plus, Trash2, Calendar, LayoutGrid, Import, X, ChevronDown, ChevronUp, ZoomIn, ZoomOut, UserPlus, FilePlus, Settings, Lock, Unlock, LogIn, LogOut } from 'lucide-react';
+import { Plus, Trash2, Calendar, LayoutGrid, Import, X, ChevronDown, ChevronUp, ZoomIn, ZoomOut, UserPlus, FilePlus, Settings, Lock, Unlock, LogIn, LogOut, Menu } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { db } from './firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
@@ -353,6 +353,7 @@ export default function App() {
   const [daySelectPopoverOpen, setDaySelectPopoverOpen] = useState(false);
   const [visualZoom, setVisualZoom] = useState(100);
   const [gridZoom, setGridZoom] = useState(100);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Auth State
   const [currentUser, setCurrentUser] = useState<UserAccess | null>(() => {
@@ -860,173 +861,323 @@ export default function App() {
   return (
     <div className="flex flex-col h-screen w-full bg-slate-100 font-sans overflow-hidden">
       {/* Top Banner Toolbar */}
-      <div className="bg-white px-6 py-4 flex items-center justify-between border-b shadow-sm shrink-0">
-        <div className="flex items-center gap-3 text-slate-800">
-          <div className="w-9 h-9 rounded-lg overflow-hidden flex items-center justify-center bg-slate-50 border border-slate-100 p-1 shadow-sm">
-            <img src="/favicon.png" alt="Logo" className="w-7 h-7 object-contain" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold leading-tight">MALAMIA</h1>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200">
-          {(!currentUser || currentUser.permissions.allowedViews.includes('grid')) && (
-            <button 
-              onClick={() => setCurrentView('grid')} 
-              className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-colors ${currentView === 'grid' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
-            >
-              PLANTILLA
-            </button>
-          )}
-          {(!currentUser || currentUser.permissions.allowedViews.includes('visual')) && (
-            <button 
-              onClick={() => setCurrentView('visual')} 
-              className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-colors ${currentView === 'visual' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
-            >
-              VISUAL
-            </button>
-          )}
-          {(!currentUser || currentUser.permissions.allowedViews.includes('summary')) && (
-            <button 
-              onClick={() => setCurrentView('summary')} 
-              className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-colors ${currentView === 'summary' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
-            >
-              RESUMEN
-            </button>
-          )}
-        </div>
-
-        <div className="flex items-center gap-6">
-          <div className="flex items-center gap-3">
-            <Calendar className="text-slate-400" size={18} />
-            <div className="flex flex-col">
-              <label className="text-[10px] font-semibold text-slate-500 uppercase">Inicio Planificación</label>
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => {
-                  setStartDate(e.target.value);
-                  // Automatically adjust end date if start date is after it
-                  if (new Date(e.target.value) > new Date(endDate)) {
-                    setEndDate(e.target.value);
-                  }
-                }}
-                className="text-sm bg-slate-50 border border-slate-200 rounded px-2 py-1 outline-none focus:border-blue-500"
-              />
+      <div className="bg-white px-6 py-3 md:py-4 border-b shadow-sm shrink-0 relative z-50">
+        <div className="flex items-center justify-between">
+          {/* Left: Logo */}
+          <div className="flex items-center gap-3 text-slate-800">
+            <div className="w-9 h-9 rounded-lg overflow-hidden flex items-center justify-center bg-slate-50 border border-slate-100 p-1 shadow-sm">
+              <img src="/favicon.png" alt="Logo" className="w-7 h-7 object-contain" />
             </div>
-            <div className="flex flex-col">
-              <label className="text-[10px] font-semibold text-slate-500 uppercase">Fin Planificación</label>
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                min={startDate}
-                className="text-sm bg-slate-50 border border-slate-200 rounded px-2 py-1 outline-none focus:border-blue-500"
-              />
+            <div>
+              <h1 className="text-xl font-bold leading-tight tracking-tight">MALAMIA</h1>
             </div>
-            <span className="text-sm text-slate-400 px-2 font-medium">({daysArray.length} {daysArray.length === 1 ? 'Día' : 'Días'})</span>
           </div>
 
-          {currentView === 'grid' && (
-            <>
-              <div className="h-8 w-px bg-slate-200 border-r"></div>
-              <div className="flex items-center gap-2 bg-slate-100 rounded-md p-1.5 px-3 border border-slate-200">
-                <ZoomOut size={16} className="text-slate-400" />
-                <input 
-                  type="range" 
-                  min="20" 
-                  max="200" 
-                  step="5"
-                  value={gridZoom}
-                  onChange={(e) => setGridZoom(Number(e.target.value))}
-                  className="w-24 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
-                  title="Ajustar Zoom de Planilla"
+          {/* Middle (Desktop Only): View Switcher */}
+          <div className="hidden lg:flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200">
+            {(!currentUser || currentUser.permissions.allowedViews.includes('grid')) && (
+              <button 
+                onClick={() => setCurrentView('grid')} 
+                className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-colors ${currentView === 'grid' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+              >
+                PLANTILLA
+              </button>
+            )}
+            {(!currentUser || currentUser.permissions.allowedViews.includes('visual')) && (
+              <button 
+                onClick={() => setCurrentView('visual')} 
+                className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-colors ${currentView === 'visual' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+              >
+                VISUAL
+              </button>
+            )}
+            {(!currentUser || currentUser.permissions.allowedViews.includes('summary')) && (
+              <button 
+                onClick={() => setCurrentView('summary')} 
+                className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-colors ${currentView === 'summary' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+              >
+                RESUMEN
+              </button>
+            )}
+          </div>
+
+          {/* Right (Desktop Only): Toolbar controls */}
+          <div className="hidden lg:flex items-center gap-4 xl:gap-6">
+            <div className="flex items-center gap-3">
+              <Calendar className="text-slate-400" size={18} />
+              <div className="flex flex-col">
+                <label className="text-[10px] font-semibold text-slate-500 uppercase">Inicio Planificación</label>
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => {
+                    setStartDate(e.target.value);
+                    if (new Date(e.target.value) > new Date(endDate)) {
+                      setEndDate(e.target.value);
+                    }
+                  }}
+                  className="text-sm bg-slate-50 border border-slate-200 rounded px-2 py-1 outline-none focus:border-blue-500"
                 />
-                <ZoomIn size={16} className="text-slate-400" />
-                <div className="text-xs font-bold text-slate-600 w-10 text-right select-none">{gridZoom}%</div>
               </div>
-            </>
-          )}
-
-          <div className="h-8 w-px bg-slate-200 border-r"></div>
-
-          {canEdit && (
-            <button
-              onClick={() => setNewCategoryModalOpen(true)}
-              className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg flex items-center gap-2 transition-all shadow-sm"
-            >
-              <Plus size={16} />
-              Nueva Categoría
-            </button>
-          )}
-
-          <div className="h-8 w-px bg-slate-200 border-r"></div>
-
-          {currentUser && (
-            <div className="flex items-center gap-2">
-              {/* Sync Status Badge */}
-              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold select-none border border-slate-200 bg-slate-50/50">
-                {syncStatus === 'loading' && (
-                  <>
-                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
-                    <span className="text-blue-600 font-medium">Sincronizando...</span>
-                  </>
-                )}
-                {syncStatus === 'saving' && (
-                  <>
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-bounce"></span>
-                    <span className="text-amber-600 font-medium">Guardando...</span>
-                  </>
-                )}
-                {syncStatus === 'saved' && (
-                  <>
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                    <span className="text-emerald-600 font-medium">Nube al día</span>
-                  </>
-                )}
-                {syncStatus === 'error' && (
-                  <>
-                    <span className="w-1.5 h-1.5 rounded-full bg-red-500"></span>
-                    <span className="text-red-600 font-medium">Error de Red</span>
-                  </>
-                )}
-                {syncStatus === 'idle' && (
-                  <>
-                    <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
-                    <span className="text-slate-500 font-medium">Conectado</span>
-                  </>
-                )}
+              <div className="flex flex-col">
+                <label className="text-[10px] font-semibold text-slate-500 uppercase">Fin Planificación</label>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  min={startDate}
+                  className="text-sm bg-slate-50 border border-slate-200 rounded px-2 py-1 outline-none focus:border-blue-500"
+                />
               </div>
+              <span className="text-sm text-slate-400 px-2 font-medium">({daysArray.length} {daysArray.length === 1 ? 'Día' : 'Días'})</span>
+            </div>
 
-              <span className="text-sm font-semibold text-slate-700 max-w-[120px] truncate" title={currentUser.email}>
-                 {currentUser.email.split('@')[0]}
-              </span>
-              {isAdmin && (
+            {currentView === 'grid' && (
+              <>
+                <div className="h-8 w-px bg-slate-200 border-r"></div>
+                <div className="flex items-center gap-2 bg-slate-100 rounded-md p-1.5 px-3 border border-slate-200">
+                  <ZoomOut size={16} className="text-slate-400" />
+                  <input 
+                    type="range" 
+                    min="20" 
+                    max="200" 
+                    step="5"
+                    value={gridZoom}
+                    onChange={(e) => setGridZoom(Number(e.target.value))}
+                    className="w-24 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                    title="Ajustar Zoom de Planilla"
+                  />
+                  <ZoomIn size={16} className="text-slate-400" />
+                  <div className="text-xs font-bold text-slate-600 w-10 text-right select-none">{gridZoom}%</div>
+                </div>
+              </>
+            )}
+
+            <div className="h-8 w-px bg-slate-200 border-r"></div>
+
+            {canEdit && (
+              <button
+                onClick={() => setNewCategoryModalOpen(true)}
+                className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg flex items-center gap-2 transition-all shadow-sm"
+              >
+                <Plus size={16} />
+                Nueva Categoría
+              </button>
+            )}
+
+            <div className="h-8 w-px bg-slate-200 border-r"></div>
+
+            {currentUser && (
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold select-none border border-slate-200 bg-slate-50/50">
+                  {syncStatus === 'loading' && (
+                    <>
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
+                      <span className="text-blue-600 font-medium">Sincronizando...</span>
+                    </>
+                  )}
+                  {syncStatus === 'saving' && (
+                    <>
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-bounce"></span>
+                      <span className="text-amber-600 font-medium">Guardando...</span>
+                    </>
+                  )}
+                  {syncStatus === 'saved' && (
+                    <>
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                      <span className="text-emerald-600 font-medium">Nube al día</span>
+                    </>
+                  )}
+                  {syncStatus === 'error' && (
+                    <>
+                      <span className="w-1.5 h-1.5 rounded-full bg-red-500"></span>
+                      <span className="text-red-600 font-medium">Error de Red</span>
+                    </>
+                  )}
+                  {syncStatus === 'idle' && (
+                    <>
+                      <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+                      <span className="text-slate-500 font-medium">Conectado</span>
+                    </>
+                  )}
+                </div>
+
+                <span className="text-sm font-semibold text-slate-700 max-w-[120px] truncate" title={currentUser.email}>
+                   {currentUser.email.split('@')[0]}
+                </span>
+                {isAdmin && (
+                  <button
+                    onClick={() => setSettingsModalOpen(true)}
+                    className="bg-slate-800 hover:bg-slate-900 text-white text-sm font-semibold px-3 py-2 rounded-lg flex items-center gap-2 transition-all shadow-sm"
+                    title="Ajustes de Administrador"
+                  >
+                    <Settings size={16} />
+                  </button>
+                )}
                 <button
-                  onClick={() => setSettingsModalOpen(true)}
-                  className="bg-slate-800 hover:bg-slate-900 text-white text-sm font-semibold px-3 py-2 rounded-lg flex items-center gap-2 transition-all shadow-sm"
-                  title="Ajustes de Administrador"
+                  onClick={() => { setCurrentUser(null); setSettingsModalOpen(false); }}
+                  className="text-slate-400 hover:text-red-500 p-2 rounded-lg transition-colors"
+                  title="Cerrar sesión"
                 >
-                  <Settings size={16} />
+                  <LogOut size={18} />
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Mobile Menu Button (Mobile Only) */}
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="lg:hidden text-slate-500 hover:text-slate-800 p-2 rounded-lg hover:bg-slate-50 border border-slate-100 transition-colors focus:outline-none"
+            aria-label="Menú de navegación"
+          >
+            {mobileMenuOpen ? <X size={22} /> : <Menu size={22} />}
+          </button>
+        </div>
+
+        {/* Mobile Dropdown Menu (Mobile Only) */}
+        {mobileMenuOpen && (
+          <div className="lg:hidden mt-4 border-t border-slate-100 pt-4 pb-2 flex flex-col gap-4">
+            {/* 1. View Switcher */}
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Vistas</span>
+              <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200 w-full">
+                {(!currentUser || currentUser.permissions.allowedViews.includes('grid')) && (
+                  <button 
+                    onClick={() => { setCurrentView('grid'); setMobileMenuOpen(false); }} 
+                    className={`flex-1 text-center py-1.5 rounded-md text-xs font-semibold transition-colors ${currentView === 'grid' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                  >
+                    PLANTILLA
+                  </button>
+                )}
+                {(!currentUser || currentUser.permissions.allowedViews.includes('visual')) && (
+                  <button 
+                    onClick={() => { setCurrentView('visual'); setMobileMenuOpen(false); }} 
+                    className={`flex-1 text-center py-1.5 rounded-md text-xs font-semibold transition-colors ${currentView === 'visual' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                  >
+                    VISUAL
+                  </button>
+                )}
+                {(!currentUser || currentUser.permissions.allowedViews.includes('summary')) && (
+                  <button 
+                    onClick={() => { setCurrentView('summary'); setMobileMenuOpen(false); }} 
+                    className={`flex-1 text-center py-1.5 rounded-md text-xs font-semibold transition-colors ${currentView === 'summary' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                  >
+                    RESUMEN
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* 2. Calendar Inputs */}
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Planificación</span>
+              <div className="grid grid-cols-2 gap-3 bg-slate-50 p-2.5 rounded-lg border border-slate-200/60">
+                <div className="flex flex-col">
+                  <label className="text-[9px] font-semibold text-slate-500 uppercase mb-1">Inicio</label>
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => {
+                      setStartDate(e.target.value);
+                      if (new Date(e.target.value) > new Date(endDate)) {
+                        setEndDate(e.target.value);
+                      }
+                    }}
+                    className="text-xs bg-white border border-slate-200 rounded px-2.5 py-1.5 outline-none focus:border-blue-500 w-full"
+                  />
+                </div>
+                <div className="flex flex-col">
+                  <label className="text-[9px] font-semibold text-slate-500 uppercase mb-1">Fin</label>
+                  <input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    min={startDate}
+                    className="text-xs bg-white border border-slate-200 rounded px-2.5 py-1.5 outline-none focus:border-blue-500 w-full"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* 3. Zoom (Grid view only) */}
+            {currentView === 'grid' && (
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Zoom Planilla</span>
+                <div className="flex items-center justify-between gap-3 bg-slate-50 p-2 rounded-lg border border-slate-200/60 px-3">
+                  <ZoomOut size={15} className="text-slate-400 shrink-0" />
+                  <input 
+                    type="range" 
+                    min="20" 
+                    max="200" 
+                    step="5"
+                    value={gridZoom}
+                    onChange={(e) => setGridZoom(Number(e.target.value))}
+                    className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                  />
+                  <ZoomIn size={15} className="text-slate-400 shrink-0" />
+                  <div className="text-xs font-bold text-slate-600 w-10 text-right select-none shrink-0">{gridZoom}%</div>
+                </div>
+              </div>
+            )}
+
+            {/* 4. Actions & User Profile */}
+            <div className="flex flex-col gap-2 pt-2 border-t border-slate-100">
+              {canEdit && (
+                <button
+                  onClick={() => { setNewCategoryModalOpen(true); setMobileMenuOpen(false); }}
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold py-2.5 rounded-lg flex items-center justify-center gap-2 transition-all shadow-sm"
+                >
+                  <Plus size={14} />
+                  Nueva Categoría
                 </button>
               )}
-              <button
-                onClick={() => { setCurrentUser(null); setSettingsModalOpen(false); }}
-                className="text-slate-400 hover:text-red-500 p-2 rounded-lg transition-colors"
-                title="Cerrar sesión"
-              >
-                <LogOut size={18} />
-              </button>
+
+              {currentUser && (
+                <div className="flex flex-col gap-2 bg-slate-50 p-2.5 rounded-lg border border-slate-200/60 mt-1">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+                      <span className="text-xs font-bold text-slate-700 truncate max-w-[150px]">{currentUser.email.split('@')[0]}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9px] font-bold border border-slate-200 bg-white">
+                      {syncStatus === 'loading' && <span className="text-blue-600">Cargando...</span>}
+                      {syncStatus === 'saving' && <span className="text-amber-600">Guardando...</span>}
+                      {syncStatus === 'saved' && <span className="text-emerald-600">Guardado</span>}
+                      {syncStatus === 'error' && <span className="text-red-600">Error Red</span>}
+                      {syncStatus === 'idle' && <span className="text-slate-500">Conectado</span>}
+                    </div>
+                  </div>
+                  
+                  <div className="flex gap-2 mt-1">
+                    {isAdmin && (
+                      <button
+                        onClick={() => { setSettingsModalOpen(true); setMobileMenuOpen(false); }}
+                        className="flex-1 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold py-2 rounded-lg flex items-center justify-center gap-1.5 transition-all shadow-sm"
+                      >
+                        <Settings size={13} />
+                        Ajustes
+                      </button>
+                    )}
+                    <button
+                      onClick={() => { setCurrentUser(null); setSettingsModalOpen(false); setMobileMenuOpen(false); }}
+                      className="flex-1 bg-white hover:bg-red-50 text-red-600 border border-red-200 text-xs font-semibold py-2 rounded-lg flex items-center justify-center gap-1.5 transition-colors"
+                    >
+                      <LogOut size={13} />
+                      Cerrar Sesión
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Main Content Area */}
       {currentView === 'visual' ? (
         <div className="flex-1 overflow-auto bg-slate-50 p-6 custom-scrollbar relative flex flex-col">
-          <div className="mb-4 flex items-center justify-between bg-white p-3 rounded-lg shadow-sm border border-slate-200 shrink-0">
+          <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between bg-white p-3 rounded-lg shadow-sm border border-slate-200 gap-3 shrink-0">
             <div className="relative">
               <h2 
                 className="text-lg font-bold text-slate-800 uppercase tracking-widest cursor-pointer hover:text-blue-600 transition-colors select-none flex items-center gap-2"
@@ -1058,8 +1209,8 @@ export default function App() {
                 </>
               )}
             </div>
-            <div className="flex gap-2 items-center">
-              <div className="flex items-center bg-slate-100 rounded-md p-1 mr-2 border border-slate-200">
+            <div className="flex flex-wrap gap-2 items-center w-full sm:w-auto justify-between sm:justify-end">
+              <div className="flex items-center bg-slate-100 rounded-md p-1 border border-slate-200 w-full sm:w-auto justify-center">
                 <button 
                   onClick={() => setVisualZoom(prev => Math.max(100, prev - 25))}
                   className="p-1 hover:bg-white hover:text-blue-600 rounded text-slate-500 transition shadow-sm bg-slate-50 border border-slate-200/50"
@@ -1076,20 +1227,22 @@ export default function App() {
                   <ZoomIn size={16} />
                 </button>
               </div>
-              <button 
-                onClick={() => setSelectedDayIdx(prev => Math.max(0, prev - 1))}
-                disabled={selectedDayIdx === 0}
-                className="px-4 py-1.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 rounded-md font-semibold text-slate-700 transition"
-              >
-                Día Anterior
-              </button>
-              <button 
-                onClick={() => setSelectedDayIdx(prev => Math.min(daysArray.length - 1, prev + 1))}
-                disabled={selectedDayIdx === daysArray.length - 1}
-                className="px-4 py-1.5 bg-blue-100 hover:bg-blue-200 text-blue-700 disabled:opacity-50 disabled:bg-slate-100 disabled:text-slate-400 rounded-md font-semibold transition"
-              >
-                Siguiente Día
-              </button>
+              <div className="flex gap-2 w-full sm:w-auto">
+                <button 
+                  onClick={() => setSelectedDayIdx(prev => Math.max(0, prev - 1))}
+                  disabled={selectedDayIdx === 0}
+                  className="flex-1 sm:flex-initial px-4 py-1.5 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 rounded-md font-semibold text-slate-700 transition text-xs md:text-sm text-center"
+                >
+                  Día Anterior
+                </button>
+                <button 
+                  onClick={() => setSelectedDayIdx(prev => Math.min(daysArray.length - 1, prev + 1))}
+                  disabled={selectedDayIdx === daysArray.length - 1}
+                  className="flex-1 sm:flex-initial px-4 py-1.5 bg-blue-100 hover:bg-blue-200 text-blue-700 disabled:opacity-50 disabled:bg-slate-100 disabled:text-slate-400 rounded-md font-semibold transition text-xs md:text-sm text-center"
+                >
+                  Siguiente Día
+                </button>
+              </div>
             </div>
           </div>
           
@@ -1170,14 +1323,14 @@ export default function App() {
       ) : currentView === 'summary' ? (
         <div className="flex-1 overflow-auto bg-slate-50 p-6 custom-scrollbar">
           <div className="max-w-4xl mx-auto bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-            <div className="px-6 py-5 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
+            <div className="px-6 py-5 border-b border-slate-200 bg-slate-50 flex flex-col sm:flex-row gap-4 sm:justify-between sm:items-center">
               <div>
                 <h2 className="text-lg font-bold text-slate-800">Resumen de Trabajadores</h2>
                 <p className="text-sm text-slate-500">Total de horas y euros acumulados por empleado en este periodo.</p>
               </div>
-              <div className="text-right">
+              <div className="text-left sm:text-right">
                 <div className="text-sm text-slate-500 font-medium">Total Plantilla</div>
-                <div className="text-2xl font-black text-emerald-600">{totalCostFromStats > 0 ? `${totalCostFromStats.toFixed(2)} €` : '0.00 €'}</div>
+                <div className="text-xl md:text-2xl font-black text-emerald-600">{totalCostFromStats > 0 ? `${totalCostFromStats.toFixed(2)} €` : '0.00 €'}</div>
               </div>
             </div>
             {employeeStats.length === 0 ? (
@@ -1185,7 +1338,8 @@ export default function App() {
                 No hay trabajadores registrados con datos.
               </div>
             ) : (
-              <table className="w-full text-left border-collapse">
+              <div className="overflow-x-auto w-full">
+                <table className="w-full text-left border-collapse min-w-[500px]">
                 <thead>
                   <tr>
                     <th className="px-6 py-3 border-b text-sm font-semibold text-slate-600 bg-slate-50 uppercase tracking-widest">Trabajador</th>
@@ -1221,7 +1375,8 @@ export default function App() {
                   ))}
                 </tbody>
               </table>
-            )}
+            </div>
+          )}
           </div>
         </div>
       ) : (
