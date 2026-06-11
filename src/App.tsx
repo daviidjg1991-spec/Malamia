@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Plus, Trash2, Calendar, LayoutGrid, Import, X, ChevronDown, ChevronUp, ZoomIn, ZoomOut, UserPlus, FilePlus, Settings, Lock, Unlock, LogIn, LogOut, Menu } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { db } from './firebase';
@@ -354,6 +354,75 @@ export default function App() {
   const [visualZoom, setVisualZoom] = useState(100);
   const [gridZoom, setGridZoom] = useState(100);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  const gridContainerRef = useRef<HTMLDivElement>(null);
+  const visualContainerRef = useRef<HTMLDivElement>(null);
+
+  const zoomRef = useRef({ gridZoom, visualZoom });
+  useEffect(() => {
+    zoomRef.current = { gridZoom, visualZoom };
+  }, [gridZoom, visualZoom]);
+
+  useEffect(() => {
+    const attachPinchZoom = (element: HTMLDivElement | null, isGrid: boolean) => {
+      if (!element) return () => {};
+
+      let initialDist = 0;
+      let initialZoom = 100;
+
+      const handleTouchStart = (e: TouchEvent) => {
+        if (e.touches.length === 2) {
+          e.preventDefault();
+          initialDist = Math.hypot(
+            e.touches[0].clientX - e.touches[1].clientX,
+            e.touches[0].clientY - e.touches[1].clientY
+          );
+          initialZoom = isGrid ? zoomRef.current.gridZoom : zoomRef.current.visualZoom;
+        }
+      };
+
+      const handleTouchMove = (e: TouchEvent) => {
+        if (e.touches.length === 2 && initialDist > 0) {
+          e.preventDefault();
+          const currentDist = Math.hypot(
+            e.touches[0].clientX - e.touches[1].clientX,
+            e.touches[0].clientY - e.touches[1].clientY
+          );
+          const factor = currentDist / initialDist;
+          
+          if (isGrid) {
+            const nextZoom = Math.min(200, Math.max(20, Math.round(initialZoom * factor)));
+            setGridZoom(nextZoom);
+          } else {
+            const nextZoom = Math.min(400, Math.max(100, Math.round(initialZoom * factor)));
+            setVisualZoom(nextZoom);
+          }
+        }
+      };
+
+      const handleTouchEnd = () => {
+        initialDist = 0;
+      };
+
+      element.addEventListener('touchstart', handleTouchStart, { passive: false });
+      element.addEventListener('touchmove', handleTouchMove, { passive: false });
+      element.addEventListener('touchend', handleTouchEnd);
+
+      return () => {
+        element.removeEventListener('touchstart', handleTouchStart);
+        element.removeEventListener('touchmove', handleTouchMove);
+        element.removeEventListener('touchend', handleTouchEnd);
+      };
+    };
+
+    const cleanupGrid = attachPinchZoom(gridContainerRef.current, true);
+    const cleanupVisual = attachPinchZoom(visualContainerRef.current, false);
+
+    return () => {
+      cleanupGrid();
+      cleanupVisual();
+    };
+  }, [currentView]);
 
   // Auth State
   const [currentUser, setCurrentUser] = useState<UserAccess | null>(() => {
@@ -1259,7 +1328,7 @@ export default function App() {
             </div>
           </div>
           
-          <div className="flex-1 overflow-auto bg-white border border-slate-300 shadow-sm custom-scrollbar relative min-h-0">
+          <div ref={visualContainerRef} className="flex-1 overflow-auto bg-white border border-slate-300 shadow-sm custom-scrollbar relative min-h-0">
             <table className="border-collapse text-[11px] table-fixed" style={{ width: `${visualZoom}%`, minWidth: '100%' }}>
               <thead className="sticky top-0 z-20 bg-white shadow-sm">
                 <tr>
@@ -1393,7 +1462,7 @@ export default function App() {
           </div>
         </div>
       ) : (
-        <div className="flex-1 overflow-auto bg-[#c5d9f1] p-3 shadow-inner custom-scrollbar relative">
+        <div ref={gridContainerRef} className="flex-1 overflow-auto bg-[#c5d9f1] p-3 shadow-inner custom-scrollbar relative">
           <div 
             className="bg-white min-w-max shadow text-slate-800 relative z-0 inline-block"
             style={{ zoom: gridZoom / 100 }}
