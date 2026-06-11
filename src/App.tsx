@@ -814,7 +814,7 @@ export default function App() {
             <div className="bg-blue-600 p-3 rounded-xl text-white mb-4 shadow-lg shadow-blue-200">
               <LayoutGrid size={32} />
             </div>
-            <h1 className="text-2xl font-bold text-slate-800 text-center leading-tight">Gestor de Horarios</h1>
+            <h1 className="text-2xl font-bold text-slate-800 text-center leading-tight">MALAMIA</h1>
             <p className="text-slate-500 text-sm mt-1">Inicia sesión para continuar</p>
           </div>
           
@@ -868,8 +868,7 @@ export default function App() {
               <LayoutGrid size={24} />
             </div>
             <div>
-              <h1 className="text-lg md:text-xl font-bold leading-tight">Gestor de Horarios</h1>
-              <p className="text-[10px] md:text-xs text-slate-500">Formato Plantilla de Excel</p>
+              <h1 className="text-lg md:text-xl font-bold leading-tight">MALAMIA</h1>
             </div>
           </div>
           
