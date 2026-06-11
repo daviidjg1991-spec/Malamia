@@ -137,6 +137,15 @@ export default function App() {
   const [currentView, setCurrentView] = useState<'grid' | 'visual' | 'summary'>('grid');
   const [selectedDayIdx, setSelectedDayIdx] = useState(0);
 
+  const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' ? window.innerWidth < 768 : false);
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   const getInitialEndDate = (start: string) => {
     const d = new Date(start);
     d.setDate(d.getDate() + 9);
@@ -708,7 +717,7 @@ export default function App() {
   const plainInput = "block w-full h-[20px] border-none outline-none bg-transparent hover:bg-slate-50 focus:bg-blue-100 text-center text-[10px] sm:text-[11px] font-medium tracking-tighter transition-colors px-0 py-0 m-0 leading-tight";
 
   const nameColumnWidth = useMemo(() => {
-    let maxLen = 14; // Default minimum length
+    let maxLen = 10; // At least fit "Nombre..." placeholder
     categories.forEach(cat => {
       cat.rows.forEach(row => {
         if (row.name && row.name.length > maxLen) {
@@ -716,9 +725,14 @@ export default function App() {
         }
       });
     });
-    // Calculate width: approx 8px per character in uppercase plus padding (32px)
+    
+    if (isMobile) {
+      // Mobile: adjust tightly to maximum character length (approx 7.5px per char + 16px padding)
+      return Math.min(250, maxLen * 7.5 + 16);
+    }
+    // Desktop: keep original behavior (min 160, max 350)
     return Math.min(350, Math.max(160, maxLen * 8 + 32));
-  }, [categories]);
+  }, [categories, isMobile]);
 
   // Global Sums
   let globalCost = 0;
@@ -1333,7 +1347,12 @@ export default function App() {
               <thead className="sticky top-0 z-20 bg-white shadow-sm">
                 <tr>
                   <th className={`${headerCell} bg-slate-200 w-6 border-r-0 sticky left-0 z-30 shadow-[1px_0_0_#cbd5e1]`}></th>
-                  <th className={`${headerCell} bg-slate-200 w-40 text-left px-1 sticky left-[24px] z-30 shadow-[2px_0_4px_-2px_#cbd5e1]`}>PERSONAL</th>
+                  <th 
+                    className={`${headerCell} bg-slate-200 text-left px-1 sticky left-[24px] z-30 shadow-[2px_0_4px_-2px_#cbd5e1]`}
+                    style={{ width: nameColumnWidth, minWidth: nameColumnWidth }}
+                  >
+                    PERSONAL
+                  </th>
                   {visualHours.map(h => (
                     <th key={h} className={`${headerCell} bg-slate-100 font-bold px-0 mx-0 text-center tracking-tighter border-slate-300 text-[10px]`}>
                       {formatVisualHour(h)}
@@ -1366,7 +1385,12 @@ export default function App() {
                                 </div>
                               </td>
                             )}
-                              <td className={`${cellBorder} px-1 font-bold bg-white text-slate-800 whitespace-nowrap overflow-hidden text-ellipsis text-[10px] sm:text-[11px] leading-tight align-middle sticky left-[24px] z-10 shadow-[2px_0_4px_-2px_#e2e8f0]`}>{emp.name.toUpperCase()}</td>
+                              <td 
+                                className={`${cellBorder} px-1 font-bold bg-white text-slate-800 whitespace-nowrap overflow-hidden text-ellipsis text-[10px] sm:text-[11px] leading-tight align-middle sticky left-[24px] z-10 shadow-[2px_0_4px_-2px_#e2e8f0]`}
+                                style={{ width: nameColumnWidth, minWidth: nameColumnWidth }}
+                              >
+                                {emp.name.toUpperCase()}
+                              </td>
                               {visualHours.map(h => {
                                 const overlappingShifts = emp.shifts.filter((s: any) => s.start < h + 1 && s.end > h);
 
