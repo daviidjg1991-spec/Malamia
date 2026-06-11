@@ -810,9 +810,9 @@ export default function App() {
     return (
       <div className="flex flex-col h-screen w-full bg-slate-50 font-sans items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-sm border border-slate-200">
-          <div className="flex flex-col items-center mb-8">
-            <div className="bg-blue-600 p-3 rounded-xl text-white mb-4 shadow-lg shadow-blue-200">
-              <LayoutGrid size={32} />
+          <div className="flex flex-col items-center mb-6">
+            <div className="mb-3">
+              <img src="/logo.png" alt="MALAMIA Logo" className="w-20 h-20 object-contain" />
             </div>
             <h1 className="text-2xl font-bold text-slate-800 text-center leading-tight">MALAMIA</h1>
             <p className="text-slate-500 text-sm mt-1">Inicia sesión para continuar</p>
@@ -862,8 +862,8 @@ export default function App() {
       {/* Top Banner Toolbar */}
       <div className="bg-white px-6 py-4 flex items-center justify-between border-b shadow-sm shrink-0">
         <div className="flex items-center gap-3 text-slate-800">
-          <div className="bg-blue-600 p-2 rounded-lg text-white">
-            <LayoutGrid size={24} />
+          <div className="w-9 h-9 rounded-lg overflow-hidden flex items-center justify-center bg-slate-50 border border-slate-100 p-1 shadow-sm">
+            <img src="/favicon.png" alt="Logo" className="w-7 h-7 object-contain" />
           </div>
           <div>
             <h1 className="text-xl font-bold leading-tight">MALAMIA</h1>
