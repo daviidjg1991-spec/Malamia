@@ -638,6 +638,19 @@ export default function App() {
   const headerCell = `border-[1px] border-slate-400 font-semibold px-1 py-0 h-[20px] align-middle`;
   const plainInput = "block w-full h-[20px] border-none outline-none bg-transparent hover:bg-slate-50 focus:bg-blue-100 text-center text-[10px] sm:text-[11px] font-medium tracking-tighter transition-colors px-0 py-0 m-0 leading-tight";
 
+  const nameColumnWidth = useMemo(() => {
+    let maxLen = 14; // Default minimum length
+    categories.forEach(cat => {
+      cat.rows.forEach(row => {
+        if (row.name && row.name.length > maxLen) {
+          maxLen = row.name.length;
+        }
+      });
+    });
+    // Calculate width: approx 8px per character in uppercase plus padding (32px)
+    return Math.min(350, Math.max(160, maxLen * 8 + 32));
+  }, [categories]);
+
   // Global Sums
   let globalCost = 0;
   const dailyCosts = new Array(daysArray.length).fill(0);
@@ -1390,10 +1403,16 @@ export default function App() {
               {/* HEADERS TOP ROW */}
             <thead className="sticky top-0 z-40">
               <tr>
-                <th colSpan={3} className={`${headerCell} bg-[#f4b084] text-black w-52 uppercase tracking-wider sticky left-0 z-40 shadow-[1px_0_0_#e2e8f0]`}>
-                  Categoría / Empleados
+                <th colSpan={2} className={`${headerCell} bg-[#f4b084] text-black w-12 uppercase tracking-wider`}>
+                  Categoría
                 </th>
-                <th className={`${headerCell} bg-[#f4b084] w-12 sticky left-[208px] z-40 shadow-[2px_0_4px_-2px_#cbd5e1]`} title="Precio € por hora">
+                <th 
+                  className={`${headerCell} bg-[#f4b084] text-black uppercase tracking-wider sticky left-0 z-40 shadow-[2px_0_4px_-2px_#cbd5e1]`}
+                  style={{ width: nameColumnWidth, minWidth: nameColumnWidth }}
+                >
+                  Empleados
+                </th>
+                <th className={`${headerCell} bg-[#f4b084] w-12`} title="Precio € por hora">
                   €/h
                 </th>
                 {daysArray.map((day, i) => (
@@ -1408,10 +1427,15 @@ export default function App() {
 
               {/* HEADERS SUB ROW */}
               <tr>
-                <th className={`${headerCell} w-6 bg-slate-200 border-r-0 sticky left-0 z-40`}></th>
-                <th className={`${headerCell} w-6 bg-slate-200 border-l-0 text-slate-400 sticky left-[24px] z-40`}></th>
-                <th className={`${headerCell} w-40 bg-slate-200 sticky left-[48px] z-40 shadow-[1px_0_0_#e2e8f0]`}>Nombre</th>
-                <th className={`${headerCell} bg-slate-200 w-12 sticky left-[208px] z-40 shadow-[2px_0_4px_-2px_#cbd5e1]`}>Tarifa</th>
+                <th className={`${headerCell} w-6 bg-slate-200 border-r-0`}></th>
+                <th className={`${headerCell} w-6 bg-slate-200 border-l-0 text-slate-400`}></th>
+                <th 
+                  className={`${headerCell} bg-slate-200 sticky left-0 z-40 shadow-[2px_0_4px_-2px_#cbd5e1]`}
+                  style={{ width: nameColumnWidth, minWidth: nameColumnWidth }}
+                >
+                  Nombre
+                </th>
+                <th className={`${headerCell} bg-slate-200 w-12`}>Tarifa</th>
                 
                 {daysArray.map((_, i) => (
                   <React.Fragment key={i}>
@@ -1465,7 +1489,7 @@ export default function App() {
                           {rowIdx === 0 && (
                             <td 
                               rowSpan={totalRowSpan} 
-                              className={`${cellBorder} bg-opacity-70 group relative align-middle sticky left-0 z-30`}
+                              className={`${cellBorder} bg-opacity-70 group relative align-middle`}
                               style={{ backgroundColor: cat.color }}
                             >
                               <div className="absolute inset-0 flex items-center justify-center overflow-hidden w-full">
@@ -1489,10 +1513,13 @@ export default function App() {
                           )}
 
                           {/* 2. Divider Blank space (matching screenshot aesthetic) */}
-                          <td className={`${cellBorder} w-6 sticky left-[24px] z-30`} style={{ backgroundColor: cat.color + '40' }}></td>
+                          <td className={`${cellBorder} w-6`} style={{ backgroundColor: cat.color + '40' }}></td>
 
                           {/* 3. Employee Name / Subheader */}
-                          <td className={`${cellBorder} relative max-w-[160px] font-semibold text-slate-800 ${row.type === 'subheader' ? 'bg-[#dcf3db]' : 'bg-white'} group/name sticky left-[48px] z-30 shadow-[1px_0_0_#e2e8f0]`}>
+                          <td 
+                            className={`${cellBorder} relative font-semibold text-slate-800 ${row.type === 'subheader' ? 'bg-[#dcf3db]' : 'bg-white'} group/name sticky left-0 z-30 shadow-[2px_0_4px_-2px_#cbd5e1]`}
+                            style={{ width: nameColumnWidth, minWidth: nameColumnWidth }}
+                          >
                             <input 
                               type="text" 
                               value={row.name}
@@ -1533,9 +1560,9 @@ export default function App() {
 
                           {/* 4. Rate (Skipped visual for subheaders) */}
                           {row.type === 'subheader' ? (
-                            <td className={`${cellBorder} bg-[#dcf3db] sticky left-[208px] z-30 shadow-[2px_0_4px_-2px_#cbd5e1]`}></td>
+                            <td className={`${cellBorder} bg-[#dcf3db]`}></td>
                           ) : (
-                            <td className={`${cellBorder} bg-white text-slate-500 sticky left-[208px] z-30 shadow-[2px_0_4px_-2px_#cbd5e1]`}>
+                            <td className={`${cellBorder} bg-white text-slate-500`}>
                               <input 
                                 type="number" 
                                 value={row.rate || ''}
@@ -1621,8 +1648,11 @@ export default function App() {
                       onDragLeave={handleDragLeave}
                       onDrop={(e) => handleDrop(e, cat.id, cat.rows.length)}
                     >
-                      <td className={`${cellBorder} w-6 sticky left-[24px] z-30`} style={{ backgroundColor: cat.color + '40' }}></td>
-                      <td colSpan={2} className={`${cellBorder} p-0 sticky left-[48px] z-30 bg-slate-50 shadow-[2px_0_4px_-2px_#cbd5e1]`}>
+                      <td className={`${cellBorder} w-6`} style={{ backgroundColor: cat.color + '40' }}></td>
+                      <td 
+                        className={`${cellBorder} p-0 sticky left-0 z-30 bg-slate-50 shadow-[2px_0_4px_-2px_#cbd5e1]`}
+                        style={{ width: nameColumnWidth, minWidth: nameColumnWidth }}
+                      >
                         {canEdit && (
                           <div className="flex items-center gap-2 px-1 text-blue-500 font-semibold opacity-0 group-hover:opacity-100 transition-opacity">
                             <button onClick={() => addEmployee(cat.id)} className="flex items-center hover:bg-blue-100 px-1 py-0 rounded transition text-[10px]">
@@ -1635,6 +1665,7 @@ export default function App() {
                           </div>
                         )}
                       </td>
+                      <td className={`${cellBorder} bg-slate-50 w-12`}></td>
                       <td colSpan={daysArray.length * 3 + 3} className={`${cellBorder} bg-slate-50/50`}></td>
                     </tr>
                   </React.Fragment>
@@ -1646,9 +1677,15 @@ export default function App() {
             <tfoot className="sticky bottom-0 z-50 shadow-[0_-2px_4px_rgba(0,0,0,0.05)]">
                <tr>
                   {/* Spanning Left Columns */}
-                  <th colSpan={4} className={`${headerCell} bg-slate-800 text-white text-right px-4 uppercase tracking-widest sticky left-0 z-50 shadow-[2px_0_4px_-2px_#cbd5e1]`}>
+                  <th className={`${headerCell} bg-slate-800 w-6 border-r-0`}></th>
+                  <th className={`${headerCell} bg-slate-800 w-6 border-l-0`}></th>
+                  <th 
+                    className={`${headerCell} bg-slate-800 text-white text-right px-2 uppercase tracking-tighter sticky left-0 z-50 shadow-[2px_0_4px_-2px_#cbd5e1] text-[9px] leading-tight`}
+                    style={{ width: nameColumnWidth, minWidth: nameColumnWidth }}
+                  >
                     Total Carga Salarial Diaria
                   </th>
+                  <th className={`${headerCell} bg-slate-800 w-12`}></th>
 
                   {/* Daily Total Euros */}
                   {daysArray.map((_, i) => (
