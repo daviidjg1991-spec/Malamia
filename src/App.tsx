@@ -1,11 +1,11 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Plus, Trash2, Calendar, LayoutGrid, Import, X, ChevronDown, ChevronUp, ZoomIn, ZoomOut, UserPlus, FilePlus, Settings, Lock, Unlock, LogIn, LogOut, Menu } from 'lucide-react';
+import { Plus, Trash2, Calendar, LayoutGrid, Import, X, ChevronDown, ChevronUp, ZoomIn, ZoomOut, UserPlus, FilePlus, Settings, Lock, Unlock, LogIn, LogOut, Menu, Search, Copy, Check } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { db } from './firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 // Types
-export type ViewPermission = 'grid' | 'visual' | 'summary';
+export type ViewPermission = 'grid' | 'visual' | 'summary' | 'personal';
 
 export interface UserAccess {
   id: string;
@@ -134,8 +134,14 @@ export default function App() {
     return INITIAL_DATA;
   });
   const [startDate, setStartDate] = useState(getNextFriday());
-  const [currentView, setCurrentView] = useState<'grid' | 'visual' | 'summary'>('grid');
+  const [currentView, setCurrentView] = useState<'grid' | 'visual' | 'summary' | 'personal'>('grid');
   const [selectedDayIdx, setSelectedDayIdx] = useState(0);
+
+  // PERSONAL View State
+  const [selectedEmployeePersonalView, setSelectedEmployeePersonalView] = useState<string | null>(null);
+  const [searchQueryPersonalView, setSearchQueryPersonalView] = useState<string>('');
+  const [copiedPersonalViewShiftId, setCopiedPersonalViewShiftId] = useState<string | null>(null);
+  const [copiedAllSuccess, setCopiedAllSuccess] = useState<boolean>(false);
 
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' ? window.innerWidth < 768 : false);
   useEffect(() => {
@@ -469,7 +475,7 @@ export default function App() {
         id: uuidv4(),
         email: 'daviidjg1991@gmail.com',
         role: 'admin',
-        permissions: { canEdit: true, allowedViews: ['grid', 'visual', 'summary'] },
+        permissions: { canEdit: true, allowedViews: ['grid', 'visual', 'summary', 'personal'] },
         password: '637050616'
       }
     ];
@@ -791,6 +797,72 @@ export default function App() {
     return Object.values(stats).sort((a, b) => a.name.localeCompare(b.name));
   }, [categories, daysArray]);
 
+  // Memoized data for PERSONAL tab
+  const personalViewEmployees = useMemo(() => {
+    const map: Record<string, {
+      name: string;
+      categories: Set<string>;
+      shifts: {
+        id: string;
+        catName: string;
+        catColor: string;
+        day: Date;
+        start: string;
+        end: string;
+        dayIdx: number;
+        rate: number;
+      }[];
+    }> = {};
+
+    categories.forEach(cat => {
+      cat.rows.forEach(row => {
+        if (row.type === 'employee' && row.name.trim()) {
+          const nameKey = row.name.trim().toLowerCase();
+          if (!map[nameKey]) {
+            map[nameKey] = {
+              name: row.name.trim(),
+              categories: new Set(),
+              shifts: []
+            };
+          }
+          map[nameKey].categories.add(cat.name);
+
+          for (let d = 0; d < daysArray.length; d++) {
+            const s = row.shifts[d];
+            if (s && s.start && s.end) {
+              map[nameKey].shifts.push({
+                id: `${row.id}-${d}`,
+                catName: cat.name,
+                catColor: cat.color,
+                day: daysArray[d],
+                start: s.start,
+                end: s.end,
+                dayIdx: d,
+                rate: row.rate
+              });
+            }
+          }
+        }
+      });
+    });
+
+    return Object.values(map)
+      .map(emp => {
+        const sortedShifts = [...emp.shifts].sort((a, b) => {
+          if (a.dayIdx !== b.dayIdx) return a.dayIdx - b.dayIdx;
+          return a.start.localeCompare(b.start);
+        });
+        return {
+          name: emp.name,
+          hasMultipleCategories: emp.categories.size > 1,
+          shifts: sortedShifts,
+          categories: Array.from(emp.categories),
+          totalHours: sortedShifts.reduce((acc, s) => acc + getHours(s.start, s.end), 0)
+        };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [categories, daysArray]);
+
   const toggleEmployeePaidStatus = (empName: string, setPaid: boolean) => {
     setCategories(prev => prev.map(cat => ({
       ...cat,
@@ -995,6 +1067,14 @@ export default function App() {
                 RESUMEN
               </button>
             )}
+            {(!currentUser || currentUser.permissions.allowedViews.includes('personal')) && (
+              <button 
+                onClick={() => setCurrentView('personal')} 
+                className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-colors ${currentView === 'personal' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+              >
+                PERSONAL
+              </button>
+            )}
           </div>
 
           {/* Right (Desktop Only): Toolbar controls */}
@@ -1160,6 +1240,14 @@ export default function App() {
                     className={`flex-1 text-center py-1.5 rounded-md text-xs font-semibold transition-colors ${currentView === 'summary' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
                   >
                     RESUMEN
+                  </button>
+                )}
+                {(!currentUser || currentUser.permissions.allowedViews.includes('personal')) && (
+                  <button 
+                    onClick={() => { setCurrentView('personal'); setMobileMenuOpen(false); }} 
+                    className={`flex-1 text-center py-1.5 rounded-md text-xs font-semibold transition-colors ${currentView === 'personal' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                  >
+                    PERSONAL
                   </button>
                 )}
               </div>
@@ -1483,6 +1571,219 @@ export default function App() {
               </table>
             </div>
           )}
+          </div>
+        </div>
+      ) : currentView === 'personal' ? (
+        <div className="flex-1 flex flex-col md:flex-row overflow-hidden bg-slate-50">
+          {/* Left Panel: Employee List */}
+          <div className="w-full md:w-80 border-r border-slate-200 bg-white flex flex-col h-[45%] md:h-full shrink-0">
+            {/* Search Box */}
+            <div className="p-4 border-b border-slate-100">
+              <div className="relative">
+                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Buscar empleado..."
+                  value={searchQueryPersonalView}
+                  onChange={(e) => setSearchQueryPersonalView(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all bg-slate-50/50"
+                />
+              </div>
+            </div>
+
+            {/* List */}
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1">
+              {personalViewEmployees
+                .filter(emp => emp.name.toLowerCase().includes(searchQueryPersonalView.toLowerCase()))
+                .map((emp) => {
+                  const isSelected = selectedEmployeePersonalView 
+                    ? selectedEmployeePersonalView.toLowerCase() === emp.name.toLowerCase()
+                    : false;
+                  return (
+                    <button
+                      key={emp.name}
+                      onClick={() => {
+                        setSelectedEmployeePersonalView(emp.name);
+                        setCopiedAllSuccess(false);
+                      }}
+                      className={`w-full text-left px-3.5 py-3 rounded-lg transition-all flex items-center justify-between group cursor-pointer ${
+                        isSelected 
+                          ? 'bg-blue-600 text-white shadow-md shadow-blue-500/10' 
+                          : 'hover:bg-slate-50 text-slate-700'
+                      }`}
+                    >
+                      <div>
+                        <div className={`font-semibold text-sm ${isSelected ? 'text-white' : 'text-slate-800'}`}>
+                          {emp.name}
+                        </div>
+                        <div className={`text-[11px] mt-0.5 ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>
+                          {emp.shifts.length} {emp.shifts.length === 1 ? 'turno' : 'turnos'} • {formatDecimalHours(emp.totalHours)}h
+                        </div>
+                      </div>
+                      <div className={`text-xs px-2 py-0.5 rounded-full font-medium tracking-tight ${
+                        isSelected 
+                          ? 'bg-blue-500 text-white' 
+                          : 'bg-slate-100 text-slate-600 group-hover:bg-slate-200'
+                      }`}>
+                        {emp.hasMultipleCategories ? 'Multicat' : emp.categories[0] || 'Sin cat'}
+                      </div>
+                    </button>
+                  );
+                })}
+              {personalViewEmployees.filter(emp => emp.name.toLowerCase().includes(searchQueryPersonalView.toLowerCase())).length === 0 && (
+                <div className="p-8 text-center text-sm text-slate-400 italic">
+                  No se encontraron empleados.
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Right Panel: Selected Employee Details */}
+          <div className="flex-1 flex flex-col overflow-hidden h-[55%] md:h-full bg-slate-50">
+            {(() => {
+              const filteredList = personalViewEmployees.filter(emp => emp.name.toLowerCase().includes(searchQueryPersonalView.toLowerCase()));
+              const selectedEmp = filteredList.find(
+                e => e.name.toLowerCase() === (selectedEmployeePersonalView || '').toLowerCase()
+              ) || (filteredList.length > 0 ? filteredList[0] : null);
+
+              const currentEmp = selectedEmp;
+
+              if (!currentEmp) {
+                return (
+                  <div className="flex-1 flex flex-col items-center justify-center text-slate-400 p-8">
+                    <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mb-3 text-slate-300">
+                      <LayoutGrid size={28} />
+                    </div>
+                    <p className="text-sm font-medium">Selecciona un empleado para ver su horario</p>
+                  </div>
+                );
+              }
+
+              // Let's format the short weekday in Spanish
+              const getShortDayOfWeek = (d: Date) => {
+                const days = ['DOM', 'LUN', 'MAR', 'MIE', 'JUE', 'VIE', 'SAB'];
+                return days[d.getDay()];
+              };
+
+              const formatShortDate = (d: Date) => {
+                return `${getShortDayOfWeek(d)} ${d.getDate()}/${d.getMonth() + 1}`;
+              };
+
+              // Build the text block of all shifts for copying
+              const buildAllShiftsText = () => {
+                return currentEmp.shifts.map(shift => {
+                  const catPart = currentEmp.hasMultipleCategories ? ` ${shift.catName.toUpperCase()}` : '';
+                  return `${currentEmp.name.toUpperCase()}${catPart} ${formatShortDate(shift.day)} ${shift.start} - ${shift.end}`;
+                }).join('\n');
+              };
+
+              const handleCopyAll = () => {
+                navigator.clipboard.writeText(buildAllShiftsText());
+                setCopiedAllSuccess(true);
+                setTimeout(() => setCopiedAllSuccess(false), 2000);
+              };
+
+              const handleCopySingle = (shiftText: string, shiftId: string) => {
+                navigator.clipboard.writeText(shiftText);
+                setCopiedPersonalViewShiftId(shiftId);
+                setTimeout(() => setCopiedPersonalViewShiftId(null), 2000);
+              };
+
+              return (
+                <div className="flex-1 flex flex-col overflow-hidden">
+                  {/* Detail Header */}
+                  <div className="bg-white p-6 border-b border-slate-200 shrink-0 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <div>
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-lg">
+                          {currentEmp.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                          <h2 className="text-lg font-black text-slate-800 tracking-tight uppercase">{currentEmp.name}</h2>
+                          <div className="flex items-center gap-1.5 mt-0.5 text-xs text-slate-500 font-medium">
+                            <span>{currentEmp.shifts.length} {currentEmp.shifts.length === 1 ? 'turno' : 'turnos'}</span>
+                            <span>•</span>
+                            <span>{formatDecimalHours(currentEmp.totalHours)}h totales</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    {currentEmp.shifts.length > 0 && (
+                      <button
+                        onClick={handleCopyAll}
+                        className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-bold transition-all border cursor-pointer ${
+                          copiedAllSuccess 
+                            ? 'bg-emerald-50 border-emerald-200 text-emerald-700' 
+                            : 'bg-blue-600 hover:bg-blue-700 border-blue-600 hover:border-blue-700 text-white shadow-sm shadow-blue-500/10'
+                        }`}
+                      >
+                        {copiedAllSuccess ? (
+                          <>
+                            <Check size={13} />
+                            <span>¡COPIADO!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy size={13} />
+                            <span>COPIAR TODO EL HORARIO</span>
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Shifts List Content */}
+                  <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-4">
+                    {currentEmp.shifts.length === 0 ? (
+                      <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-400 italic">
+                        No hay turnos asignados para este periodo.
+                      </div>
+                    ) : (
+                      <div className="max-w-xl space-y-3">
+                        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5">Horarios Disponibles</h3>
+                        {currentEmp.shifts.map((shift) => {
+                          const catPart = currentEmp.hasMultipleCategories ? ` ${shift.catName.toUpperCase()}` : '';
+                          const shiftText = `${currentEmp.name.toUpperCase()}${catPart} ${formatShortDate(shift.day)} ${shift.start} - ${shift.end}`;
+                          const isCopied = copiedPersonalViewShiftId === shift.id;
+
+                          return (
+                            <div 
+                              key={shift.id}
+                              className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm hover:shadow-md transition-all flex items-center justify-between gap-4 group"
+                            >
+                              <div className="flex-1 min-w-0">
+                                <div className="font-mono text-[13px] font-bold text-slate-800 select-all tracking-tight leading-normal">
+                                  {shiftText}
+                                </div>
+                                <div className="flex items-center gap-2 mt-2">
+                                  <span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider" style={{ backgroundColor: shift.catColor + '25', color: shift.catColor }}>
+                                    {shift.catName}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400 font-medium">
+                                    Tarifa: {shift.rate} €/h • Subtotal: {(getHours(shift.start, shift.end) * shift.rate).toFixed(2)} €
+                                  </span>
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => handleCopySingle(shiftText, shift.id)}
+                                className={`p-2 rounded-lg border transition-all shrink-0 cursor-pointer ${
+                                  isCopied 
+                                    ? 'bg-emerald-50 border-emerald-200 text-emerald-600' 
+                                    : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-500 hover:text-slate-700'
+                                }`}
+                                title="Copiar este turno"
+                              >
+                                {isCopied ? <Check size={14} /> : <Copy size={14} />}
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
       ) : (
@@ -2024,9 +2325,9 @@ export default function App() {
                             Puede Modificar
                           </label>
                         </div>
-                        <div className="flex items-center gap-4 bg-white p-3 rounded border border-slate-300">
+                        <div className="flex items-center gap-4 bg-white p-3 rounded border border-slate-300 flex-wrap">
                            <span className="text-sm font-semibold text-slate-700">Pestañas permitidas:</span>
-                           {['grid', 'visual', 'summary'].map((view) => (
+                           {['grid', 'visual', 'summary', 'personal'].map((view) => (
                              <label key={view} className="flex items-center gap-1.5 text-sm cursor-pointer select-none">
                                <input 
                                  type="checkbox"
@@ -2040,7 +2341,7 @@ export default function App() {
                                  }}
                                  className="w-4 h-4 text-blue-600 rounded"
                                />
-                               {view === 'grid' ? 'PLANTILLA' : view === 'visual' ? 'VISUAL' : 'RESUMEN'}
+                               {view === 'grid' ? 'PLANTILLA' : view === 'visual' ? 'VISUAL' : view === 'summary' ? 'RESUMEN' : 'PERSONAL'}
                              </label>
                            ))}
                         </div>
@@ -2081,7 +2382,7 @@ export default function App() {
                                   )}
                                 </td>
                                 <td className="px-4 py-3 text-slate-600 text-xs">
-                                  {user.role === 'admin' ? 'Todas' : user.permissions.allowedViews.map(v => v === 'grid' ? 'PLANTILLA' : v === 'visual' ? 'VISUAL' : 'RESUMEN').join(', ')}
+                                  {user.role === 'admin' ? 'Todas' : user.permissions.allowedViews.map(v => v === 'grid' ? 'PLANTILLA' : v === 'visual' ? 'VISUAL' : v === 'summary' ? 'RESUMEN' : 'PERSONAL').join(', ')}
                                 </td>
                                 <td className="px-4 py-3">
                                   <input 
