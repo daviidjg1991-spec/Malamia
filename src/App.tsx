@@ -143,6 +143,9 @@ export default function App() {
   const [copiedPersonalViewShiftId, setCopiedPersonalViewShiftId] = useState<string | null>(null);
   const [copiedAllSuccess, setCopiedAllSuccess] = useState<boolean>(false);
 
+  // Grid Selection State
+  const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
+
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' ? window.innerWidth < 768 : false);
   useEffect(() => {
     const handleResize = () => {
@@ -1761,52 +1764,95 @@ export default function App() {
                   </div>
 
                   {/* Shifts List Content */}
-                  <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-4">
+                  <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
                     {currentEmp.shifts.length === 0 ? (
                       <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-400 italic">
                         No hay turnos asignados para este periodo.
                       </div>
                     ) : (
-                      <div className="max-w-xl space-y-3">
-                        <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5">Horarios Disponibles</h3>
-                        {currentEmp.shifts.map((shift) => {
-                          const catPart = currentEmp.hasMultipleCategories ? ` ${shift.catName.toUpperCase()}` : '';
-                          const shiftText = `${currentEmp.name.toUpperCase()}${catPart} ${formatShortDate(shift.day)} ${shift.start} - ${shift.end}`;
-                          const isCopied = copiedPersonalViewShiftId === shift.id;
+                      (() => {
+                        // Group shifts by dayKey
+                        const groups: Record<string, typeof currentEmp.shifts> = {};
+                        currentEmp.shifts.forEach(shift => {
+                          const dayKey = shift.day.toISOString().split('T')[0];
+                          if (!groups[dayKey]) {
+                            groups[dayKey] = [];
+                          }
+                          groups[dayKey].push(shift);
+                        });
+                        
+                        const shiftsByDay = Object.keys(groups)
+                          .sort()
+                          .map(dayKey => ({
+                            dayKey,
+                            day: new Date(dayKey),
+                            shifts: groups[dayKey].sort((a, b) => a.start.localeCompare(b.start))
+                          }));
 
-                          return (
-                            <div 
-                              key={shift.id}
-                              className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm hover:shadow-md transition-all flex items-center justify-between gap-4 group"
-                            >
-                              <div className="flex-1 min-w-0">
-                                <div className="font-mono text-[13px] font-bold text-slate-800 select-all tracking-tight leading-normal">
-                                  {shiftText}
+                        return (
+                          <div className="max-w-4xl space-y-6">
+                            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Horarios Disponibles por Día</h3>
+                            {shiftsByDay.map(({ dayKey, day, shifts }) => {
+                              return (
+                                <div key={dayKey} className="flex flex-col md:flex-row md:items-start border-b border-slate-200/60 pb-5 last:border-0 last:pb-0 gap-4">
+                                  {/* Day label on the left (row-like header) */}
+                                  <div className="w-full md:w-36 shrink-0 pt-1.5">
+                                    <span className="text-sm font-black text-slate-700 capitalize tracking-tight bg-slate-200/60 px-2.5 py-1 rounded-md block md:inline-block">
+                                      {formatDateDay(day)}
+                                    </span>
+                                  </div>
+
+                                  {/* Shifts side-by-side on the right (columns) */}
+                                  <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                                    {shifts.map((shift) => {
+                                      const catPart = currentEmp.hasMultipleCategories ? ` ${shift.catName.toUpperCase()}` : '';
+                                      const shiftText = `${currentEmp.name.toUpperCase()}${catPart} ${formatShortDate(shift.day)} ${shift.start} - ${shift.end}`;
+                                      const isCopied = copiedPersonalViewShiftId === shift.id;
+
+                                      return (
+                                        <div 
+                                          key={shift.id}
+                                          className="rounded-xl border p-3.5 shadow-sm hover:shadow-md transition-all flex items-center justify-between gap-3 group relative overflow-hidden bg-white"
+                                          style={{ 
+                                            backgroundColor: shift.catColor + '15',
+                                            borderColor: shift.catColor + '60',
+                                            borderLeft: `4px solid ${shift.catColor}`
+                                          }}
+                                        >
+                                          <div className="flex-1 min-w-0">
+                                            <div className="font-mono text-xs font-bold text-slate-800 select-all tracking-tight leading-normal uppercase">
+                                              {shiftText}
+                                            </div>
+                                            <div className="mt-2 flex items-center gap-1.5">
+                                              <span className="text-[9px] px-1.5 py-0.5 rounded font-extrabold uppercase tracking-wider bg-white/80 shadow-sm border border-slate-100" style={{ color: shift.catColor }}>
+                                                {shift.catName}
+                                              </span>
+                                              <span className="text-[10px] text-slate-500 font-medium">
+                                                Duración: {formatDecimalHours(getHours(shift.start, shift.end))}h
+                                              </span>
+                                            </div>
+                                          </div>
+                                          <button
+                                            onClick={() => handleCopySingle(shiftText, shift.id)}
+                                            className={`p-1.5 rounded-lg border transition-all shrink-0 cursor-pointer ${
+                                              isCopied 
+                                                ? 'bg-emerald-50 border-emerald-200 text-emerald-600 animate-pulse' 
+                                                : 'bg-white/80 hover:bg-white border-slate-200 text-slate-500 hover:text-slate-700 shadow-sm'
+                                            }`}
+                                            title="Copiar este turno"
+                                          >
+                                            {isCopied ? <Check size={12} /> : <Copy size={12} />}
+                                          </button>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
                                 </div>
-                                <div className="flex items-center gap-2 mt-2">
-                                  <span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider" style={{ backgroundColor: shift.catColor + '25', color: shift.catColor }}>
-                                    {shift.catName}
-                                  </span>
-                                  <span className="text-[10px] text-slate-400 font-medium">
-                                    Tarifa: {shift.rate} €/h • Subtotal: {(getHours(shift.start, shift.end) * shift.rate).toFixed(2)} €
-                                  </span>
-                                </div>
-                              </div>
-                              <button
-                                onClick={() => handleCopySingle(shiftText, shift.id)}
-                                className={`p-2 rounded-lg border transition-all shrink-0 cursor-pointer ${
-                                  isCopied 
-                                    ? 'bg-emerald-50 border-emerald-200 text-emerald-600' 
-                                    : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-500 hover:text-slate-700'
-                                }`}
-                                title="Copiar este turno"
-                              >
-                                {isCopied ? <Check size={14} /> : <Copy size={14} />}
-                              </button>
-                            </div>
-                          );
-                        })}
-                      </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })()
                     )}
                   </div>
                 </div>
@@ -1899,7 +1945,9 @@ export default function App() {
                       return (
                         <tr 
                           key={row.id} 
-                          className={`relative group h-[20px] ${isDragOver ? 'bg-blue-100' : 'hover:bg-blue-50/40'}`}
+                          className={`relative group h-[20px] ${isDragOver ? 'bg-blue-100' : selectedRowId === row.id ? 'bg-yellow-100/70' : 'hover:bg-blue-50/40'}`}
+                          onClick={() => setSelectedRowId(row.id)}
+                          onFocus={() => setSelectedRowId(row.id)}
                           draggable={canEdit}
                           onDragStart={(e) => canEdit && handleDragStart(e, cat.id, rowIdx)}
                           onDragOver={(e) => canEdit && handleDragOver(e, cat.id, rowIdx)}
@@ -1939,8 +1987,12 @@ export default function App() {
 
                           {/* 3. Employee Name / Subheader */}
                           <td 
-                            className={`${cellBorder} relative font-semibold text-slate-800 ${row.type === 'subheader' ? 'bg-[#dcf3db]' : 'bg-white'} group/name sticky left-0 z-30 shadow-[2px_0_4px_-2px_#cbd5e1]`}
-                            style={{ width: nameColumnWidth, minWidth: nameColumnWidth }}
+                            className={`${cellBorder} relative font-semibold text-slate-800 group/name sticky left-0 z-30 shadow-[2px_0_4px_-2px_#cbd5e1] ${selectedRowId === row.id ? 'bg-yellow-100' : ''}`}
+                            style={{ 
+                              width: nameColumnWidth, 
+                              minWidth: nameColumnWidth,
+                              backgroundColor: selectedRowId === row.id ? undefined : (row.type === 'subheader' ? '#dcf3db' : cat.color + '25')
+                            }}
                           >
                             <input 
                               type="text" 
@@ -1982,9 +2034,15 @@ export default function App() {
 
                           {/* 4. Rate (Skipped visual for subheaders) */}
                           {row.type === 'subheader' ? (
-                            <td className={`${cellBorder} bg-[#dcf3db]`}></td>
+                            <td 
+                              className={`${cellBorder}`}
+                              style={{ backgroundColor: selectedRowId === row.id ? undefined : '#dcf3db' }}
+                            ></td>
                           ) : (
-                            <td className={`${cellBorder} bg-white text-slate-500`}>
+                            <td 
+                              className={`${cellBorder} text-slate-500 ${selectedRowId === row.id ? 'bg-yellow-100' : ''}`}
+                              style={{ backgroundColor: selectedRowId === row.id ? undefined : cat.color + '25' }}
+                            >
                               <input 
                                 type="number" 
                                 value={row.rate || ''}
@@ -1999,17 +2057,23 @@ export default function App() {
 
                           {/* 5. Shifts (Blocks of 3) or Empty for subheader */}
                           {row.type === 'subheader' ? (
-                            <td colSpan={daysArray.length * 3 + 3} className={`${cellBorder} bg-[#dcf3db]`}></td>
+                            <td 
+                              colSpan={daysArray.length * 3 + 3} 
+                              className={`${cellBorder}`}
+                              style={{ backgroundColor: selectedRowId === row.id ? undefined : '#dcf3db' }}
+                            ></td>
                           ) : (
                             <>
                               {daysArray.map((_, dayIdx) => {
                                 const s = row.shifts[dayIdx] || { start: '', end: '' };
                                 const dayHrs = getHours(s.start, s.end);
-                                const cellBgClass = "bg-white"; // Standard cell background
                                 
                                 return (
                                   <React.Fragment key={dayIdx}>
-                                    <td className={`${cellBorder} ${cellBgClass}`}>
+                                    <td 
+                                      className={`${cellBorder} ${selectedRowId === row.id ? 'bg-yellow-100' : ''}`}
+                                      style={{ backgroundColor: selectedRowId === row.id ? undefined : cat.color + '10' }}
+                                    >
                                       <input 
                                         type="text" 
                                         value={s.start}
@@ -2020,7 +2084,10 @@ export default function App() {
                                         disabled={!canEdit}
                                       />
                                     </td>
-                                    <td className={`${cellBorder} ${cellBgClass}`}>
+                                    <td 
+                                      className={`${cellBorder} ${selectedRowId === row.id ? 'bg-yellow-100' : ''}`}
+                                      style={{ backgroundColor: selectedRowId === row.id ? undefined : cat.color + '10' }}
+                                    >
                                       <input 
                                         type="text" 
                                         value={s.end}
@@ -2031,7 +2098,7 @@ export default function App() {
                                         disabled={!canEdit}
                                       />
                                     </td>
-                                    <td className={`${cellBorder} bg-slate-200/50 text-slate-400 font-medium text-center align-middle select-none pointer-events-none`}>
+                                    <td className={`${cellBorder} ${selectedRowId === row.id ? 'bg-yellow-100/75 text-yellow-900 font-bold' : 'bg-slate-200/50 text-slate-400 font-medium'} text-center align-middle select-none pointer-events-none`}>
                                       {formatDecimalHours(dayHrs)}
                                     </td>
                                   </React.Fragment>
@@ -2039,13 +2106,16 @@ export default function App() {
                               })}
 
                               {/* 6. Finals (Total Hours, Total €, Status) */}
-                              <td className={`${cellBorder} bg-slate-200 font-bold text-center text-slate-800`}>
+                              <td className={`${cellBorder} ${selectedRowId === row.id ? 'bg-yellow-100 font-black text-slate-900' : 'bg-slate-200 text-slate-800 font-bold'} text-center`}>
                                 {formatDecimalHours(rowHoursDecimals)}
                               </td>
                               <td className={`${cellBorder} text-center font-bold text-[12px] tabular-nums ${(rowTotalEuros > 0 && row.status === 'PAGADO') ? 'bg-green-400/90 text-white' : (rowTotalEuros > 0 ? 'bg-green-200 text-green-900' : 'bg-slate-100 text-slate-400')}`}>
                                 {rowTotalEuros > 0 ? `${rowTotalEuros.toFixed(2)} €` : ''}
                               </td>
-                              <td className={`${cellBorder} bg-white`}>
+                              <td 
+                                className={`${cellBorder} ${selectedRowId === row.id ? 'bg-yellow-100' : ''}`}
+                                style={{ backgroundColor: selectedRowId === row.id ? undefined : cat.color + '25' }}
+                              >
                                 <select 
                                   value={row.status}
                                   onChange={(e) => updateRow(cat.id, row.id, r => ({...r, status: e.target.value}))}
