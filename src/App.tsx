@@ -82,6 +82,42 @@ const parseTimeInput = (val: string) => {
   return cleaned;
 };
 
+// Auto-resizing textarea for employee names
+const AutoResizingTextarea = React.memo(({ value, onChange, className, placeholder, disabled }: {
+  value: string;
+  onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
+  className?: string;
+  placeholder?: string;
+  disabled?: boolean;
+}) => {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const adjustHeight = () => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = 'auto';
+      textarea.style.height = `${textarea.scrollHeight}px`;
+    }
+  };
+
+  useEffect(() => {
+    adjustHeight();
+  }, [value]);
+
+  return (
+    <textarea
+      ref={textareaRef}
+      value={value}
+      onChange={onChange}
+      className={className}
+      placeholder={placeholder}
+      disabled={disabled}
+      rows={1}
+      style={{ resize: 'none', overflow: 'hidden', display: 'block', width: '100%' }}
+    />
+  );
+});
+
 const INITIAL_DATA: CategoryGroup[] = [
   {
     id: 'cat-1',
@@ -143,8 +179,10 @@ export default function App() {
   const [copiedPersonalViewShiftId, setCopiedPersonalViewShiftId] = useState<string | null>(null);
   const [copiedAllSuccess, setCopiedAllSuccess] = useState<boolean>(false);
 
-  // Grid Selection State
+  // Grid Selection & Mobile Hiding State
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
+  const [hideEmployeeColumnMobile, setHideEmployeeColumnMobile] = useState<boolean>(false);
+  const [isPersonalHeaderShrunk, setIsPersonalHeaderShrunk] = useState<boolean>(false);
 
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' ? window.innerWidth < 768 : false);
   useEffect(() => {
@@ -749,9 +787,9 @@ export default function App() {
   };
 
   // Reusable CSS patterns
-  const cellBorder = "border-[1px] border-slate-400 m-0 p-0 h-[20px]";
-  const headerCell = `border-[1px] border-slate-400 font-semibold px-1 py-0 h-[20px] align-middle`;
-  const plainInput = "block w-full h-[20px] border-none outline-none bg-transparent hover:bg-slate-50 focus:bg-blue-100 text-center text-[10px] sm:text-[11px] font-medium tracking-tighter transition-colors px-0 py-0 m-0 leading-tight";
+  const cellBorder = "border-[1px] border-slate-400 m-0 p-0 min-h-[20px] h-auto";
+  const headerCell = `border-[1px] border-slate-400 font-semibold px-1 py-1 min-h-[20px] h-auto align-middle`;
+  const plainInput = "block w-full min-h-[20px] h-auto border-none outline-none bg-transparent hover:bg-slate-50 focus:bg-blue-100 text-center text-[10px] sm:text-[11px] font-medium tracking-tighter transition-colors px-0 py-0.5 m-0 leading-tight";
 
   const nameColumnWidth = useMemo(() => {
     let maxLen = 10; // At least fit "Nombre..." placeholder
@@ -764,8 +802,8 @@ export default function App() {
     });
     
     if (isMobile) {
-      // Mobile: adjust tightly to maximum character length (approx 7.5px per char + 16px padding)
-      return Math.min(250, maxLen * 7.5 + 16);
+      // Mobile: adapt to the longest name dynamically without hard limit
+      return maxLen * 7.5 + 24;
     }
     // Desktop: keep original behavior (min 160, max 350)
     return Math.min(350, Math.max(160, maxLen * 8 + 32));
@@ -1315,25 +1353,39 @@ export default function App() {
               </div>
             </div>
 
-            {/* 3. Zoom (Grid view only) */}
+            {/* 3. Zoom (Grid view only) & Table Options */}
             {currentView === 'grid' && (
-              <div className="flex flex-col gap-1.5">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Zoom Planilla</span>
-                <div className="flex items-center justify-between gap-3 bg-slate-50 p-2 rounded-lg border border-slate-200/60 px-3">
-                  <ZoomOut size={15} className="text-slate-400 shrink-0" />
-                  <input 
-                    type="range" 
-                    min="20" 
-                    max="200" 
-                    step="5"
-                    value={gridZoom}
-                    onChange={(e) => setGridZoom(Number(e.target.value))}
-                    className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
-                  />
-                  <ZoomIn size={15} className="text-slate-400 shrink-0" />
-                  <div className="text-xs font-bold text-slate-600 w-10 text-right select-none shrink-0">{gridZoom}%</div>
+              <>
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Zoom Planilla</span>
+                  <div className="flex items-center justify-between gap-3 bg-slate-50 p-2 rounded-lg border border-slate-200/60 px-3">
+                    <ZoomOut size={15} className="text-slate-400 shrink-0" />
+                    <input 
+                      type="range" 
+                      min="20" 
+                      max="200" 
+                      step="5"
+                      value={gridZoom}
+                      onChange={(e) => setGridZoom(Number(e.target.value))}
+                      className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                    />
+                    <ZoomIn size={15} className="text-slate-400 shrink-0" />
+                    <div className="text-xs font-bold text-slate-600 w-10 text-right select-none shrink-0">{gridZoom}%</div>
+                  </div>
                 </div>
-              </div>
+                <div className="flex flex-col gap-1.5 mt-2">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Opciones de Tabla</span>
+                  <label className="flex items-center justify-between bg-slate-50 p-2.5 rounded-lg border border-slate-200/60 px-3 cursor-pointer select-none">
+                    <span className="text-xs font-semibold text-slate-700">Ocultar Nombres</span>
+                    <input 
+                      type="checkbox"
+                      checked={hideEmployeeColumnMobile}
+                      onChange={(e) => setHideEmployeeColumnMobile(e.target.checked)}
+                      className="w-4 h-4 text-blue-600 rounded cursor-pointer"
+                    />
+                  </label>
+                </div>
+              </>
             )}
 
             {/* 4. Actions & User Profile */}
@@ -1606,8 +1658,8 @@ export default function App() {
         </div>
       ) : currentView === 'personal' ? (
         <div className="flex-1 flex flex-col md:flex-row overflow-hidden bg-slate-50">
-          {/* Left Panel: Employee List */}
-          <div className="w-full md:w-80 border-r border-slate-200 bg-white flex flex-col h-[45%] md:h-full shrink-0">
+          {/* Left Panel: Employee List (hidden on mobile) */}
+          <div className="hidden md:flex w-full md:w-80 border-r border-slate-200 bg-white flex-col h-full shrink-0">
             {/* Search Box */}
             <div className="p-4 border-b border-slate-100">
               <div className="relative">
@@ -1670,7 +1722,7 @@ export default function App() {
           </div>
 
           {/* Right Panel: Selected Employee Details */}
-          <div className="flex-1 flex flex-col overflow-hidden h-[55%] md:h-full bg-slate-50">
+          <div className="flex-1 flex flex-col overflow-hidden h-full bg-slate-50">
             {(() => {
               const filteredList = personalViewEmployees.filter(emp => emp.name.toLowerCase().includes(searchQueryPersonalView.toLowerCase()));
               const selectedEmp = filteredList.find(
@@ -1720,10 +1772,19 @@ export default function App() {
                 setTimeout(() => setCopiedPersonalViewShiftId(null), 2000);
               };
 
+              const handlePersonalScroll = (e: React.UIEvent<HTMLDivElement>) => {
+                const scrollTop = e.currentTarget.scrollTop;
+                if (scrollTop > 20) {
+                  setIsPersonalHeaderShrunk(true);
+                } else {
+                  setIsPersonalHeaderShrunk(false);
+                }
+              };
+
               return (
-                <div className="flex-1 flex flex-col overflow-hidden">
-                  {/* Detail Header */}
-                  <div className="bg-white p-6 border-b border-slate-200 shrink-0 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div className="flex-1 flex flex-col overflow-hidden relative">
+                  {/* Desktop Detail Header */}
+                  <div className="hidden md:flex bg-white p-6 border-b border-slate-200 shrink-0 justify-between items-center gap-4">
                     <div>
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-lg">
@@ -1763,8 +1824,75 @@ export default function App() {
                     )}
                   </div>
 
+                  {/* Mobile Sticky Header (Sticky top select dropdown) */}
+                  <div 
+                    className={`md:hidden sticky top-0 z-20 bg-white border-b border-slate-200 shrink-0 transition-all duration-300 shadow-sm ${
+                      isPersonalHeaderShrunk ? 'p-2.5 gap-2' : 'p-4 gap-3'
+                    } flex flex-col`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <label className={`block text-[9px] font-bold text-slate-400 uppercase tracking-widest ${isPersonalHeaderShrunk ? 'hidden' : 'mb-1'}`}>
+                          Seleccionar Empleado
+                        </label>
+                        <div className="relative">
+                          <select
+                            value={currentEmp.name}
+                            onChange={(e) => {
+                              setSelectedEmployeePersonalView(e.target.value);
+                              setCopiedAllSuccess(false);
+                            }}
+                            className="w-full pl-3 pr-8 py-1.5 text-xs font-bold bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 uppercase appearance-none cursor-pointer"
+                          >
+                            {personalViewEmployees.map(emp => (
+                              <option key={emp.name} value={emp.name}>
+                                {emp.name} ({emp.shifts.length} T)
+                              </option>
+                            ))}
+                          </select>
+                          <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+                        </div>
+                      </div>
+
+                      <div className="text-right shrink-0">
+                        <div className="text-[10px] font-extrabold text-slate-800">
+                          {formatDecimalHours(currentEmp.totalHours)}h
+                        </div>
+                        <div className="text-[9px] text-slate-400 font-semibold leading-none">
+                          {currentEmp.shifts.length} {currentEmp.shifts.length === 1 ? 'turno' : 'turnos'}
+                        </div>
+                      </div>
+                    </div>
+
+                    {currentEmp.shifts.length > 0 && !isPersonalHeaderShrunk && (
+                      <button
+                        onClick={handleCopyAll}
+                        className={`w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[10px] font-bold transition-all border cursor-pointer ${
+                          copiedAllSuccess 
+                            ? 'bg-emerald-50 border-emerald-200 text-emerald-700' 
+                            : 'bg-blue-600 hover:bg-blue-700 border-blue-600 hover:border-blue-700 text-white shadow-sm shadow-blue-500/10'
+                        }`}
+                      >
+                        {copiedAllSuccess ? (
+                          <>
+                            <Check size={11} />
+                            <span>¡HORARIO COPIADO!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy size={11} />
+                            <span>COPIAR TODO EL HORARIO</span>
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
+
                   {/* Shifts List Content */}
-                  <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
+                  <div 
+                    onScroll={handlePersonalScroll}
+                    className="flex-1 overflow-y-auto overflow-x-hidden w-full custom-scrollbar p-4 md:p-6"
+                  >
                     {currentEmp.shifts.length === 0 ? (
                       <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-400 italic">
                         No hay turnos asignados para este periodo.
@@ -1820,7 +1948,7 @@ export default function App() {
                                           }}
                                         >
                                           <div className="flex-1 min-w-0">
-                                            <div className="font-mono text-xs font-bold text-slate-800 select-all tracking-tight leading-normal uppercase">
+                                            <div className="font-mono text-[11px] sm:text-xs font-bold text-slate-800 select-all tracking-tight leading-normal uppercase break-words whitespace-normal">
                                               {shiftText}
                                             </div>
                                             <div className="mt-2 flex items-center gap-1.5">
@@ -1861,11 +1989,12 @@ export default function App() {
           </div>
         </div>
       ) : (
-        <div ref={gridContainerRef} className="flex-1 overflow-auto bg-[#c5d9f1] p-3 shadow-inner custom-scrollbar relative">
-          <div 
-            className="bg-white min-w-max shadow text-slate-800 relative z-0 inline-block"
-            style={{ zoom: gridZoom / 100 }}
-          >
+        <div className="flex-1 flex flex-col overflow-hidden relative">
+          <div ref={gridContainerRef} className="flex-1 overflow-auto bg-[#c5d9f1] p-3 shadow-inner custom-scrollbar relative">
+            <div 
+              className="bg-white min-w-max shadow text-slate-800 relative z-0 inline-block"
+              style={{ zoom: gridZoom / 100 }}
+            >
             <table className="w-auto border-collapse table-fixed text-[11px] select-text">
               
               {/* HEADERS TOP ROW */}
@@ -1874,12 +2003,14 @@ export default function App() {
                 <th colSpan={2} className={`${headerCell} bg-[#f4b084] text-black w-12 uppercase tracking-wider`}>
                   Categoría
                 </th>
-                <th 
-                  className={`${headerCell} bg-[#f4b084] text-black uppercase tracking-wider sticky left-0 z-40 shadow-[2px_0_4px_-2px_#cbd5e1]`}
-                  style={{ width: nameColumnWidth, minWidth: nameColumnWidth }}
-                >
-                  Empleados
-                </th>
+                {!(hideEmployeeColumnMobile && isMobile) && (
+                  <th 
+                    className={`${headerCell} bg-[#f4b084] text-black uppercase tracking-wider sticky left-0 z-40 shadow-[2px_0_4px_-2px_#cbd5e1]`}
+                    style={{ width: nameColumnWidth, minWidth: nameColumnWidth }}
+                  >
+                    Empleados
+                  </th>
+                )}
                 <th className={`${headerCell} bg-[#f4b084] w-12`} title="Precio € por hora">
                   €/h
                 </th>
@@ -1897,12 +2028,14 @@ export default function App() {
               <tr>
                 <th className={`${headerCell} w-6 bg-slate-200 border-r-0`}></th>
                 <th className={`${headerCell} w-6 bg-slate-200 border-l-0 text-slate-400`}></th>
-                <th 
-                  className={`${headerCell} bg-slate-200 sticky left-0 z-40 shadow-[2px_0_4px_-2px_#cbd5e1]`}
-                  style={{ width: nameColumnWidth, minWidth: nameColumnWidth }}
-                >
-                  Nombre
-                </th>
+                {!(hideEmployeeColumnMobile && isMobile) && (
+                  <th 
+                    className={`${headerCell} bg-slate-200 sticky left-0 z-40 shadow-[2px_0_4px_-2px_#cbd5e1]`}
+                    style={{ width: nameColumnWidth, minWidth: nameColumnWidth }}
+                  >
+                    Nombre
+                  </th>
+                )}
                 <th className={`${headerCell} bg-slate-200 w-12`}>Tarifa</th>
                 
                 {daysArray.map((_, i) => (
@@ -1986,51 +2119,52 @@ export default function App() {
                           <td className={`${cellBorder} w-6`} style={{ backgroundColor: cat.color + '40' }}></td>
 
                           {/* 3. Employee Name / Subheader */}
-                          <td 
-                            className={`${cellBorder} relative font-semibold text-slate-800 group/name sticky left-0 z-30 shadow-[2px_0_4px_-2px_#cbd5e1] ${selectedRowId === row.id ? 'bg-yellow-100' : ''}`}
-                            style={{ 
-                              width: nameColumnWidth, 
-                              minWidth: nameColumnWidth,
-                              backgroundColor: selectedRowId === row.id ? undefined : (row.type === 'subheader' ? '#dcf3db' : cat.color + '25')
-                            }}
-                          >
-                            <input 
-                              type="text" 
-                              value={row.name}
-                              onChange={(e) => updateRow(cat.id, row.id, r => ({...r, name: e.target.value}))}
-                              className={`${plainInput} text-left font-semibold uppercase px-2 truncate`}
-                              placeholder={row.type === 'employee' ? 'Nombre...' : 'TITULO SECCIÓN'}
-                              disabled={!canEdit}
-                            />
-                            {/* Hidden Delete Button (shows on hover) */}
-                            {canEdit && (
-                              <button 
-                                 onClick={() => deleteRow(cat.id, row.id)}
-                                 className="absolute -left-3 top-1 opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 bg-white shadow rounded-full p-0.5 z-40 transition-opacity"
-                              >
-                                 <Trash2 size={10} />
-                              </button>
-                            )}
+                          {!(hideEmployeeColumnMobile && isMobile) && (
+                            <td 
+                              className={`${cellBorder} relative font-semibold text-slate-800 group/name sticky left-0 z-30 shadow-[2px_0_4px_-2px_#cbd5e1] ${selectedRowId === row.id ? 'bg-yellow-100' : ''}`}
+                              style={{ 
+                                width: nameColumnWidth, 
+                                minWidth: nameColumnWidth,
+                                backgroundColor: selectedRowId === row.id ? undefined : (row.type === 'subheader' ? '#dcf3db' : cat.color + '25')
+                              }}
+                            >
+                              <AutoResizingTextarea 
+                                value={row.name}
+                                onChange={(e) => updateRow(cat.id, row.id, r => ({...r, name: e.target.value}))}
+                                className={`${plainInput} text-left font-semibold uppercase px-2 py-0.5`}
+                                placeholder={row.type === 'employee' ? 'Nombre...' : 'TITULO SECCIÓN'}
+                                disabled={!canEdit}
+                              />
+                              {/* Hidden Delete Button (shows on hover) */}
+                              {canEdit && (
+                                <button 
+                                   onClick={() => deleteRow(cat.id, row.id)}
+                                   className="absolute -left-3 top-1 opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 bg-white shadow rounded-full p-0.5 z-40 transition-opacity"
+                                >
+                                   <Trash2 size={10} />
+                                </button>
+                              )}
 
-                            {/* Insertion Controls (shows on hover) */}
-                            {canEdit && (
-                              <div className="absolute right-0.5 top-[1px] bottom-[1px] hidden group-hover/name:flex items-center gap-0.5 bg-white/95 px-1 shadow-[0_0_8px_4px_rgba(255,255,255,0.95)] z-40 rounded border border-slate-100">
-                                 <button onClick={() => addEmployee(cat.id, rowIdx)} title="Empleado Arriba" className="flex items-center text-blue-600 hover:bg-blue-100 p-0.5 rounded transition">
-                                   <ChevronUp size={10} className="-mr-0.5" /><UserPlus size={10} />
-                                 </button>
-                                 <button onClick={() => addEmployee(cat.id, rowIdx + 1)} title="Empleado Abajo" className="flex items-center text-blue-600 hover:bg-blue-100 p-0.5 rounded transition">
-                                   <ChevronDown size={10} className="-mr-0.5" /><UserPlus size={10} />
-                                 </button>
-                                 <div className="w-[1px] h-3 bg-slate-300 mx-0.5"></div>
-                                 <button onClick={() => addSubheader(cat.id, rowIdx)} title="Sección Arriba" className="flex items-center text-emerald-600 hover:bg-emerald-100 p-0.5 rounded transition">
-                                   <ChevronUp size={10} className="-mr-0.5" /><FilePlus size={10} />
-                                 </button>
-                                 <button onClick={() => addSubheader(cat.id, rowIdx + 1)} title="Sección Abajo" className="flex items-center text-emerald-600 hover:bg-emerald-100 p-0.5 rounded transition">
-                                   <ChevronDown size={10} className="-mr-0.5" /><FilePlus size={10} />
-                                 </button>
-                              </div>
-                            )}
-                          </td>
+                              {/* Insertion Controls (shows on hover) */}
+                              {canEdit && (
+                                <div className="absolute right-0.5 top-[1px] bottom-[1px] hidden group-hover/name:flex items-center gap-0.5 bg-white/95 px-1 shadow-[0_0_8px_4px_rgba(255,255,255,0.95)] z-40 rounded border border-slate-100">
+                                   <button onClick={() => addEmployee(cat.id, rowIdx)} title="Empleado Arriba" className="flex items-center text-blue-600 hover:bg-blue-100 p-0.5 rounded transition">
+                                     <ChevronUp size={10} className="-mr-0.5" /><UserPlus size={10} />
+                                   </button>
+                                   <button onClick={() => addEmployee(cat.id, rowIdx + 1)} title="Empleado Abajo" className="flex items-center text-blue-600 hover:bg-blue-100 p-0.5 rounded transition">
+                                     <ChevronDown size={10} className="-mr-0.5" /><UserPlus size={10} />
+                                   </button>
+                                   <div className="w-[1px] h-3 bg-slate-300 mx-0.5"></div>
+                                   <button onClick={() => addSubheader(cat.id, rowIdx)} title="Sección Arriba" className="flex items-center text-emerald-600 hover:bg-emerald-100 p-0.5 rounded transition">
+                                     <ChevronUp size={10} className="-mr-0.5" /><FilePlus size={10} />
+                                   </button>
+                                   <button onClick={() => addSubheader(cat.id, rowIdx + 1)} title="Sección Abajo" className="flex items-center text-emerald-600 hover:bg-emerald-100 p-0.5 rounded transition">
+                                     <ChevronDown size={10} className="-mr-0.5" /><FilePlus size={10} />
+                                   </button>
+                                </div>
+                              )}
+                            </td>
+                          )}
 
                           {/* 4. Rate (Skipped visual for subheaders) */}
                           {row.type === 'subheader' ? (
@@ -2141,10 +2275,11 @@ export default function App() {
                       onDrop={(e) => handleDrop(e, cat.id, cat.rows.length)}
                     >
                       <td className={`${cellBorder} w-6`} style={{ backgroundColor: cat.color + '40' }}></td>
-                      <td 
-                        className={`${cellBorder} p-0 sticky left-0 z-30 bg-slate-50 shadow-[2px_0_4px_-2px_#cbd5e1]`}
-                        style={{ width: nameColumnWidth, minWidth: nameColumnWidth }}
-                      >
+                      {!(hideEmployeeColumnMobile && isMobile) && (
+                        <td 
+                          className={`${cellBorder} p-0 sticky left-0 z-30 bg-slate-50 shadow-[2px_0_4px_-2px_#cbd5e1]`}
+                          style={{ width: nameColumnWidth, minWidth: nameColumnWidth }}
+                        >
                         {canEdit && (
                           <div className="flex items-center gap-2 px-1 text-blue-500 font-semibold opacity-0 group-hover:opacity-100 transition-opacity">
                             <button onClick={() => addEmployee(cat.id)} className="flex items-center hover:bg-blue-100 px-1 py-0 rounded transition text-[10px]">
@@ -2156,7 +2291,8 @@ export default function App() {
                             </button>
                           </div>
                         )}
-                      </td>
+                        </td>
+                      )}
                       <td className={`${cellBorder} bg-slate-50 w-12`}></td>
                       <td colSpan={daysArray.length * 3 + 3} className={`${cellBorder} bg-slate-50/50`}></td>
                     </tr>
@@ -2171,12 +2307,14 @@ export default function App() {
                   {/* Spanning Left Columns */}
                   <th className={`${headerCell} bg-slate-800 w-6 border-r-0`}></th>
                   <th className={`${headerCell} bg-slate-800 w-6 border-l-0`}></th>
-                  <th 
-                    className={`${headerCell} bg-slate-800 text-white text-right px-2 uppercase tracking-tighter sticky left-0 z-50 shadow-[2px_0_4px_-2px_#cbd5e1] text-[9px] leading-tight`}
-                    style={{ width: nameColumnWidth, minWidth: nameColumnWidth }}
-                  >
-                    Total Carga Salarial Diaria
-                  </th>
+                  {!(hideEmployeeColumnMobile && isMobile) && (
+                    <th 
+                      className={`${headerCell} bg-slate-800 text-white text-right px-2 uppercase tracking-tighter sticky left-0 z-50 shadow-[2px_0_4px_-2px_#cbd5e1] text-[9px] leading-tight`}
+                      style={{ width: nameColumnWidth, minWidth: nameColumnWidth }}
+                    >
+                      Total Carga Salarial Diaria
+                    </th>
+                  )}
                   <th className={`${headerCell} bg-slate-800 w-12`}></th>
 
                   {/* Daily Total Euros */}
@@ -2199,6 +2337,18 @@ export default function App() {
           </table>
         </div>
       </div>
+
+      {/* Mobile Floating Toggle Column Button */}
+      {isMobile && currentView === 'grid' && (
+        <button
+          onClick={() => setHideEmployeeColumnMobile(!hideEmployeeColumnMobile)}
+          className="absolute bottom-6 right-6 z-50 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs px-4 py-3 rounded-full shadow-lg flex items-center gap-2 border border-slate-800 transition-all active:scale-95 cursor-pointer"
+        >
+          <LayoutGrid size={14} />
+          <span>{hideEmployeeColumnMobile ? "Mostrar Nombres" : "Ocultar Nombres"}</span>
+        </button>
+      )}
+    </div>
       )}
       
       {/* Scrollbar styling overrides inline */}
