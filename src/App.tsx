@@ -507,10 +507,29 @@ export default function App() {
         }
 
         // Load users list
+        // Load users list
         const usersDocRef = doc(db, 'schedule', 'users');
         const usersSnap = await getDoc(usersDocRef);
         if (usersSnap.exists()) {
-          setUsersList(usersSnap.data().data);
+          const loadedUsers = usersSnap.data().data as UserAccess[];
+          let migrated = false;
+          const updatedUsers = loadedUsers.map(u => {
+            if (u.role === 'admin' && !u.permissions.allowedViews.includes('personal')) {
+              migrated = true;
+              return {
+                ...u,
+                permissions: {
+                  ...u.permissions,
+                  allowedViews: [...u.permissions.allowedViews, 'personal']
+                }
+              };
+            }
+            return u;
+          });
+          setUsersList(updatedUsers);
+          if (migrated) {
+            await setDoc(usersDocRef, { data: updatedUsers });
+          }
         } else {
           // Initialize it with current state
           await setDoc(usersDocRef, { data: usersList });
@@ -582,6 +601,15 @@ export default function App() {
       localStorage.removeItem('gestor_current_user');
     }
   }, [currentUser]);
+
+  React.useEffect(() => {
+    if (currentUser) {
+      const updatedUser = usersList.find(u => u.id === currentUser.id);
+      if (updatedUser && JSON.stringify(updatedUser) !== JSON.stringify(currentUser)) {
+        setCurrentUser(updatedUser);
+      }
+    }
+  }, [usersList, currentUser]);
 
   const handleAdminPasswordChange = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1043,7 +1071,7 @@ export default function App() {
 
           {/* Middle (Desktop Only): View Switcher */}
           <div className="hidden lg:flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200">
-            {(!currentUser || currentUser.permissions.allowedViews.includes('grid')) && (
+            {(!currentUser || currentUser.role === 'admin' || currentUser.permissions.allowedViews.includes('grid')) && (
               <button 
                 onClick={() => setCurrentView('grid')} 
                 className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-colors ${currentView === 'grid' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
@@ -1051,7 +1079,7 @@ export default function App() {
                 PLANTILLA
               </button>
             )}
-            {(!currentUser || currentUser.permissions.allowedViews.includes('visual')) && (
+            {(!currentUser || currentUser.role === 'admin' || currentUser.permissions.allowedViews.includes('visual')) && (
               <button 
                 onClick={() => setCurrentView('visual')} 
                 className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-colors ${currentView === 'visual' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
@@ -1059,7 +1087,7 @@ export default function App() {
                 VISUAL
               </button>
             )}
-            {(!currentUser || currentUser.permissions.allowedViews.includes('summary')) && (
+            {(!currentUser || currentUser.role === 'admin' || currentUser.permissions.allowedViews.includes('summary')) && (
               <button 
                 onClick={() => setCurrentView('summary')} 
                 className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-colors ${currentView === 'summary' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
@@ -1067,7 +1095,7 @@ export default function App() {
                 RESUMEN
               </button>
             )}
-            {(!currentUser || currentUser.permissions.allowedViews.includes('personal')) && (
+            {(!currentUser || currentUser.role === 'admin' || currentUser.permissions.allowedViews.includes('personal')) && (
               <button 
                 onClick={() => setCurrentView('personal')} 
                 className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-colors ${currentView === 'personal' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
@@ -1218,7 +1246,7 @@ export default function App() {
             <div className="flex flex-col gap-1.5">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Vistas</span>
               <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200 w-full">
-                {(!currentUser || currentUser.permissions.allowedViews.includes('grid')) && (
+                {(!currentUser || currentUser.role === 'admin' || currentUser.permissions.allowedViews.includes('grid')) && (
                   <button 
                     onClick={() => { setCurrentView('grid'); setMobileMenuOpen(false); }} 
                     className={`flex-1 text-center py-1.5 rounded-md text-xs font-semibold transition-colors ${currentView === 'grid' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
@@ -1226,7 +1254,7 @@ export default function App() {
                     PLANTILLA
                   </button>
                 )}
-                {(!currentUser || currentUser.permissions.allowedViews.includes('visual')) && (
+                {(!currentUser || currentUser.role === 'admin' || currentUser.permissions.allowedViews.includes('visual')) && (
                   <button 
                     onClick={() => { setCurrentView('visual'); setMobileMenuOpen(false); }} 
                     className={`flex-1 text-center py-1.5 rounded-md text-xs font-semibold transition-colors ${currentView === 'visual' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
@@ -1234,7 +1262,7 @@ export default function App() {
                     VISUAL
                   </button>
                 )}
-                {(!currentUser || currentUser.permissions.allowedViews.includes('summary')) && (
+                {(!currentUser || currentUser.role === 'admin' || currentUser.permissions.allowedViews.includes('summary')) && (
                   <button 
                     onClick={() => { setCurrentView('summary'); setMobileMenuOpen(false); }} 
                     className={`flex-1 text-center py-1.5 rounded-md text-xs font-semibold transition-colors ${currentView === 'summary' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
@@ -1242,7 +1270,7 @@ export default function App() {
                     RESUMEN
                   </button>
                 )}
-                {(!currentUser || currentUser.permissions.allowedViews.includes('personal')) && (
+                {(!currentUser || currentUser.role === 'admin' || currentUser.permissions.allowedViews.includes('personal')) && (
                   <button 
                     onClick={() => { setCurrentView('personal'); setMobileMenuOpen(false); }} 
                     className={`flex-1 text-center py-1.5 rounded-md text-xs font-semibold transition-colors ${currentView === 'personal' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
