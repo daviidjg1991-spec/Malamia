@@ -1341,33 +1341,29 @@ export default function App() {
 
           {/* Right (Desktop Only): Toolbar controls */}
           <div className="hidden lg:flex items-center gap-4 xl:gap-6">
-            <div className="flex items-center gap-3">
-              <Calendar className="text-slate-400" size={18} />
-              <div className="flex flex-col">
-                <label className="text-[10px] font-semibold text-slate-500 uppercase">Inicio Planificación</label>
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => {
-                    setStartDate(e.target.value);
-                    if (new Date(e.target.value) > new Date(endDate)) {
-                      setEndDate(e.target.value);
-                    }
-                  }}
-                  className="text-sm bg-slate-50 border border-slate-200 rounded px-2 py-1 outline-none focus:border-blue-500"
-                />
-              </div>
-              <div className="flex flex-col">
-                <label className="text-[10px] font-semibold text-slate-500 uppercase">Fin Planificación</label>
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  min={startDate}
-                  className="text-sm bg-slate-50 border border-slate-200 rounded px-2 py-1 outline-none focus:border-blue-500"
-                />
-              </div>
-              <span className="text-sm text-slate-400 px-2 font-medium">({daysArray.length} {daysArray.length === 1 ? 'Día' : 'Días'})</span>
+            <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-full border border-slate-200 shadow-sm">
+              <Calendar className="text-slate-400" size={16} />
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => {
+                  setStartDate(e.target.value);
+                  if (new Date(e.target.value) > new Date(endDate)) {
+                    setEndDate(e.target.value);
+                  }
+                }}
+                className="text-xs bg-transparent font-medium text-slate-700 outline-none w-[110px]"
+                title="Inicio Planificación"
+              />
+              <span className="text-slate-300">-</span>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                min={startDate}
+                className="text-xs bg-transparent font-medium text-slate-700 outline-none w-[110px]"
+                title="Fin Planificación"
+              />
             </div>
 
             {currentView === 'grid' && (
@@ -2468,8 +2464,8 @@ export default function App() {
                                 }}
                               >
                                 {row.type === 'employee' && annotations[row.name] && (
-                                  <div className="absolute top-1/2 left-[90%] transform -translate-y-1/2 opacity-0 group-hover/name:opacity-100 bg-slate-800 text-white text-[11px] font-medium p-2.5 rounded shadow-xl z-50 pointer-events-none transition-opacity max-w-[250px] whitespace-pre-wrap invisible group-hover/name:visible border border-slate-600 leading-tight">
-                                    {annotations[row.name]}
+                                  <div className="absolute top-1/2 left-full ml-2 transform -translate-y-1/2 opacity-0 group-hover/name:opacity-100 bg-slate-800 text-white text-[12px] font-medium p-3.5 rounded-lg shadow-2xl z-50 pointer-events-auto transition-all duration-200 invisible group-hover/name:visible border border-slate-600 leading-relaxed min-w-[200px] w-[200px] aspect-[4/5] overflow-y-auto custom-scrollbar flex flex-col">
+                                    <div className="break-words whitespace-pre-wrap flex-1">{annotations[row.name]}</div>
                                   </div>
                                 )}
                                 <AutoResizingTextarea 
