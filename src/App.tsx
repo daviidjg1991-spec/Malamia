@@ -2456,7 +2456,7 @@ export default function App() {
                             {/* 3. Employee Name / Subheader */}
                             {!(hideEmployeeColumnMobile && isMobile) && (
                               <td 
-                                className={`${cellBorder} relative font-semibold text-slate-800 group/name sticky left-0 z-30 shadow-[2px_0_4px_-2px_#cbd5e1] ${selectedRowId === row.id ? 'bg-yellow-100' : ''}${topBorderClass}`}
+                                className={`${cellBorder} relative font-semibold text-slate-800 group/name sticky left-0 z-30 hover:z-[60] shadow-[2px_0_4px_-2px_#cbd5e1] ${selectedRowId === row.id ? 'bg-yellow-100' : ''}${topBorderClass}`}
                                 style={{ 
                                   width: nameColumnWidth, 
                                   minWidth: nameColumnWidth,
@@ -2464,7 +2464,7 @@ export default function App() {
                                 }}
                               >
                                 {row.type === 'employee' && annotations[row.name] && (
-                                  <div className="absolute top-1/2 left-full ml-2 transform -translate-y-1/2 opacity-0 group-hover/name:opacity-100 bg-slate-800 text-white text-[12px] font-medium p-3.5 rounded-lg shadow-2xl z-50 pointer-events-auto transition-all duration-200 invisible group-hover/name:visible border border-slate-600 leading-relaxed min-w-[200px] w-[200px] aspect-[4/5] overflow-y-auto custom-scrollbar flex flex-col">
+                                  <div className="absolute top-0 left-full ml-2 opacity-0 group-hover/name:opacity-100 bg-slate-800 text-white text-[12px] font-medium p-3.5 rounded-lg shadow-2xl z-50 pointer-events-auto transition-all duration-200 invisible group-hover/name:visible border border-slate-600 leading-relaxed min-w-[200px] w-[200px] aspect-[4/5] overflow-y-auto custom-scrollbar flex flex-col">
                                     <div className="break-words whitespace-pre-wrap flex-1">{annotations[row.name]}</div>
                                   </div>
                                 )}
