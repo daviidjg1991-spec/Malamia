@@ -1,11 +1,11 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Plus, Trash2, Calendar, LayoutGrid, Import, X, ChevronDown, ChevronUp, ZoomIn, ZoomOut, UserPlus, FilePlus, Settings, Lock, Unlock, LogIn, LogOut, Menu, Search, Copy, Check, Undo, Redo } from 'lucide-react';
+import { Plus, Trash2, Calendar, LayoutGrid, Import, X, ChevronDown, ChevronUp, ZoomIn, ZoomOut, UserPlus, FilePlus, Settings, Lock, Unlock, LogIn, LogOut, Menu, Search, Copy, Check, Undo, Redo, FileText } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { db } from './firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 // Types
-export type ViewPermission = 'grid' | 'visual' | 'summary' | 'personal';
+export type ViewPermission = 'grid' | 'visual' | 'summary' | 'personal' | 'annotations';
 
 export interface UserAccess {
   id: string;
@@ -171,7 +171,18 @@ export default function App() {
     return INITIAL_DATA;
   });
   const [startDate, setStartDate] = useState(getNextFriday());
-  const [currentView, setCurrentView] = useState<'grid' | 'visual' | 'summary' | 'personal'>('grid');
+  const [currentView, setCurrentView] = useState<'grid' | 'visual' | 'summary' | 'personal' | 'annotations'>('grid');
+
+  // Annotations State
+  const [annotations, setAnnotations] = useState<Record<string, string>>(() => {
+    const saved = localStorage.getItem('gestor_annotations');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return {};
+  });
   const [selectedDayIdx, setSelectedDayIdx] = useState(0);
 
   // PERSONAL View State
@@ -688,7 +699,15 @@ export default function App() {
           await setDoc(categoriesDocRef, { data: categories });
         }
 
-        // Load users list
+        // Load annotations
+        const annotationsDocRef = doc(db, 'schedule', 'annotations');
+        const annotationsSnap = await getDoc(annotationsDocRef);
+        if (annotationsSnap.exists()) {
+          setAnnotations(annotationsSnap.data().data);
+        } else {
+          await setDoc(annotationsDocRef, { data: annotations });
+        }
+
         // Load users list
         const usersDocRef = doc(db, 'schedule', 'users');
         const usersSnap = await getDoc(usersDocRef);
@@ -702,7 +721,7 @@ export default function App() {
                 ...u,
                 permissions: {
                   ...u.permissions,
-                  allowedViews: [...u.permissions.allowedViews, 'personal']
+                  allowedViews: Array.from(new Set([...u.permissions.allowedViews, 'personal', 'annotations']))
                 }
               };
             }
@@ -728,6 +747,25 @@ export default function App() {
 
     loadData();
   }, []);
+
+  // Save annotations to Firestore on change (debounced)
+  React.useEffect(() => {
+    if (!initialLoadComplete) return;
+
+    setSyncStatus('saving');
+    const timer = setTimeout(async () => {
+      try {
+        const annotationsDocRef = doc(db, 'schedule', 'annotations');
+        await setDoc(annotationsDocRef, { data: annotations });
+        setSyncStatus('saved');
+      } catch (error) {
+        console.error("Error saving annotations to Firestore:", error);
+        setSyncStatus('error');
+      }
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [annotations, initialLoadComplete]);
 
   // Save categories to Firestore on change (debounced)
   React.useEffect(() => {
@@ -775,6 +813,10 @@ export default function App() {
   React.useEffect(() => {
     localStorage.setItem('gestor_users_list', JSON.stringify(usersList));
   }, [usersList]);
+
+  React.useEffect(() => {
+    localStorage.setItem('gestor_annotations', JSON.stringify(annotations));
+  }, [annotations]);
 
   React.useEffect(() => {
     if (currentUser) {
@@ -1287,6 +1329,14 @@ export default function App() {
                 PERSONAL
               </button>
             )}
+            {(!currentUser || currentUser.role === 'admin' || currentUser.permissions.allowedViews.includes('annotations')) && (
+              <button 
+                onClick={() => setCurrentView('annotations')} 
+                className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-colors ${currentView === 'annotations' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+              >
+                ANOTACIONES
+              </button>
+            )}
           </div>
 
           {/* Right (Desktop Only): Toolbar controls */}
@@ -1479,6 +1529,14 @@ export default function App() {
                     className={`flex-1 text-center py-1.5 rounded-md text-xs font-semibold transition-colors ${currentView === 'personal' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
                   >
                     PERSONAL
+                  </button>
+                )}
+                {(!currentUser || currentUser.role === 'admin' || currentUser.permissions.allowedViews.includes('annotations')) && (
+                  <button 
+                    onClick={() => { setCurrentView('annotations'); setMobileMenuOpen(false); }} 
+                    className={`flex-1 text-center py-1.5 rounded-md text-xs font-semibold transition-colors ${currentView === 'annotations' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                  >
+                    ANOTACIONES
                   </button>
                 )}
               </div>
@@ -2171,6 +2229,51 @@ export default function App() {
             })()}
           </div>
         </div>
+      ) : currentView === 'annotations' ? (
+        <div className="flex-1 overflow-y-auto bg-slate-50 p-4 md:p-6">
+          <div className="max-w-4xl mx-auto bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+            <div className="bg-slate-50 px-6 py-4 border-b border-slate-200">
+              <h2 className="text-lg font-bold text-slate-800 uppercase tracking-tight flex items-center gap-2">
+                <FileText size={20} className="text-blue-500" />
+                Anotaciones de Personal
+              </h2>
+              <p className="text-xs text-slate-500 mt-1">Escribe anotaciones para cada empleado. Serán visibles al pasar el ratón sobre su nombre en la plantilla.</p>
+            </div>
+            <div className="p-0">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-100/50 text-slate-600 text-[11px] uppercase tracking-wider font-bold">
+                    <th className="px-6 py-3 border-b border-slate-200 w-1/3">Empleado</th>
+                    <th className="px-6 py-3 border-b border-slate-200 w-2/3">Anotaciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {Array.from(new Set(flatRows.filter(r => r.type === 'employee' && r.name.trim() !== '').map(r => r.name))).map((empName: string) => (
+                    <tr key={empName} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="px-6 py-4 font-semibold text-sm text-slate-800 align-top uppercase break-words border-r border-slate-100">
+                        {empName}
+                      </td>
+                      <td className="px-6 py-3">
+                        <AutoResizingTextarea
+                          value={annotations[empName] || ''}
+                          onChange={(e) => setAnnotations(prev => ({ ...prev, [empName]: e.target.value }))}
+                          className="w-full text-sm p-3 border border-slate-200 rounded-lg focus:border-blue-400 focus:ring-4 focus:ring-blue-100/50 transition-all outline-none resize-none min-h-[60px] bg-white shadow-sm"
+                          placeholder="Escribe una anotación para este empleado..."
+                          disabled={!canEdit}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                  {flatRows.filter(r => r.type === 'employee' && r.name.trim() !== '').length === 0 && (
+                    <tr>
+                      <td colSpan={2} className="px-6 py-12 text-center text-slate-400 italic text-sm">No hay empleados registrados en la plantilla.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
       ) : (
         <div className="flex-1 flex flex-col overflow-hidden relative">
           <div ref={gridContainerRef} className="flex-1 overflow-auto bg-[#c5d9f1] p-3 shadow-inner custom-scrollbar relative">
@@ -2364,6 +2467,11 @@ export default function App() {
                                   backgroundColor: selectedRowId === row.id ? undefined : (row.type === 'subheader' ? '#dcf3db' : cat.color + '25')
                                 }}
                               >
+                                {row.type === 'employee' && annotations[row.name] && (
+                                  <div className="absolute top-1/2 left-[90%] transform -translate-y-1/2 opacity-0 group-hover/name:opacity-100 bg-slate-800 text-white text-[11px] font-medium p-2.5 rounded shadow-xl z-50 pointer-events-none transition-opacity max-w-[250px] whitespace-pre-wrap invisible group-hover/name:visible border border-slate-600 leading-tight">
+                                    {annotations[row.name]}
+                                  </div>
+                                )}
                                 <AutoResizingTextarea 
                                   value={row.name}
                                   onChange={(e) => updateRow(cat.id, row.id, r => ({...r, name: e.target.value}))}
