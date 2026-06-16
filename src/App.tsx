@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Plus, Trash2, Calendar, LayoutGrid, Import, X, ChevronDown, ChevronUp, ZoomIn, ZoomOut, UserPlus, FilePlus, Settings, Lock, Unlock, LogIn, LogOut, Menu, Search, Copy, Check } from 'lucide-react';
+import { Plus, Trash2, Calendar, LayoutGrid, Import, X, ChevronDown, ChevronUp, ZoomIn, ZoomOut, UserPlus, FilePlus, Settings, Lock, Unlock, LogIn, LogOut, Menu, Search, Copy, Check, Undo, Redo } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { db } from './firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
@@ -82,13 +82,13 @@ const parseTimeInput = (val: string) => {
   return cleaned;
 };
 
-// Auto-resizing textarea for employee names
-const AutoResizingTextarea = React.memo(({ value, onChange, className, placeholder, disabled }: {
+const AutoResizingTextarea = React.memo(({ value, onChange, className, placeholder, disabled, ...rest }: {
   value: string;
   onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
   className?: string;
   placeholder?: string;
   disabled?: boolean;
+  [key: string]: any;
 }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -114,6 +114,7 @@ const AutoResizingTextarea = React.memo(({ value, onChange, className, placehold
       disabled={disabled}
       rows={1}
       style={{ resize: 'none', overflow: 'hidden', display: 'block', width: '100%' }}
+      {...rest}
     />
   );
 });
@@ -532,6 +533,158 @@ export default function App() {
   const [syncStatus, setSyncStatus] = useState<'idle' | 'loading' | 'saving' | 'saved' | 'error'>('idle');
   const [initialLoadComplete, setInitialLoadComplete] = useState(false);
 
+  // Undo/Redo History States
+  const [history, setHistory] = useState<CategoryGroup[][]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  const isUndoingOrRedoing = useRef(false);
+
+  // Category color picker active cat state
+  const [activeColorPickerCatId, setActiveColorPickerCatId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!initialLoadComplete) return;
+
+    if (isUndoingOrRedoing.current) {
+      isUndoingOrRedoing.current = false;
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setHistory(prev => {
+        const nextHistory = prev.slice(0, historyIndex + 1);
+        if (nextHistory.length > 0 && JSON.stringify(nextHistory[nextHistory.length - 1]) === JSON.stringify(categories)) {
+          return prev;
+        }
+        const newHistory = [...nextHistory, categories];
+        setHistoryIndex(newHistory.length - 1);
+        return newHistory;
+      });
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [categories, initialLoadComplete]);
+
+  const handleUndo = () => {
+    if (historyIndex > 0) {
+      isUndoingOrRedoing.current = true;
+      const prevIndex = historyIndex - 1;
+      setHistoryIndex(prevIndex);
+      setCategories(history[prevIndex]);
+    }
+  };
+
+  const handleRedo = () => {
+    if (historyIndex < history.length - 1) {
+      isUndoingOrRedoing.current = true;
+      const nextIndex = historyIndex + 1;
+      setHistoryIndex(nextIndex);
+      setCategories(history[nextIndex]);
+    }
+  };
+
+  const updateCategoryColor = (catId: string, color: string) => {
+    setCategories(prev => prev.map(c => c.id === catId ? { ...c, color } : c));
+  };
+
+  // Flatten categories and rows to get unique global indices
+  const flatRows = useMemo(() => {
+    const list: { catId: string; rowId: string; type: 'employee' | 'subheader'; name: string; globalIdx: number }[] = [];
+    let globalIdx = 0;
+    categories.forEach(cat => {
+      cat.rows.forEach(row => {
+        list.push({
+          catId: cat.id,
+          rowId: row.id,
+          type: row.type,
+          name: row.name,
+          globalIdx: globalIdx++
+        });
+      });
+    });
+    return list;
+  }, [categories]);
+
+  const focusCell = (targetRow: number, targetCol: number, direction: string) => {
+    const totalRows = flatRows.length;
+    const maxColIdx = 2 + 2 * daysArray.length;
+
+    let r = targetRow;
+    let c = targetCol;
+
+    if (r < 0) r = 0;
+    if (r >= totalRows) r = totalRows - 1;
+
+    if (c < 0) c = 0;
+    if (c > maxColIdx) c = maxColIdx;
+
+    const queryAndFocus = (currRow: number, currCol: number): boolean => {
+      const selector = `[data-row-idx="${currRow}"][data-col-idx="${currCol}"]`;
+      const el = document.querySelector(selector) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
+      if (el) {
+        el.focus();
+        if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+          (el as HTMLInputElement).select();
+        }
+        return true;
+      }
+      return false;
+    };
+
+    if (queryAndFocus(r, c)) return;
+
+    if (direction === 'ArrowUp' || direction === 'ArrowDown') {
+      const step = direction === 'ArrowUp' ? -1 : 1;
+      let tempRow = r;
+      while (tempRow >= 0 && tempRow < totalRows) {
+        if (queryAndFocus(tempRow, c)) return;
+        tempRow += step;
+      }
+      queryAndFocus(r, 0);
+    } else if (direction === 'ArrowLeft' || direction === 'ArrowRight') {
+      const step = direction === 'ArrowLeft' ? -1 : 1;
+      let tempCol = c;
+      while (tempCol >= 0 && tempCol <= maxColIdx) {
+        if (queryAndFocus(r, tempCol)) return;
+        tempCol += step;
+      }
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>, globalRowIdx: number, colIdx: number) => {
+    const { key } = e;
+    const isArrow = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key);
+    if (!isArrow) return;
+
+    if (key === 'ArrowLeft' || key === 'ArrowRight') {
+      const target = e.target as HTMLInputElement | HTMLTextAreaElement;
+      if (target.selectionStart !== undefined && target.selectionEnd !== undefined) {
+        if (key === 'ArrowLeft' && target.selectionStart !== 0) {
+          return;
+        }
+        if (key === 'ArrowRight' && target.selectionEnd !== target.value.length) {
+          return;
+        }
+      }
+    }
+
+    e.preventDefault();
+
+    let nextRow = globalRowIdx;
+    let nextCol = colIdx;
+
+    if (key === 'ArrowUp') {
+      nextRow = globalRowIdx - 1;
+    } else if (key === 'ArrowDown') {
+      nextRow = globalRowIdx + 1;
+    } else if (key === 'ArrowLeft') {
+      nextCol = colIdx - 1;
+    } else if (key === 'ArrowRight') {
+      nextCol = colIdx + 1;
+    }
+
+    focusCell(nextRow, nextCol, key);
+  };
+
   // Load categories and users from Cloud Firestore on mount
   React.useEffect(() => {
     const loadData = async () => {
@@ -746,10 +899,11 @@ export default function App() {
   };
 
   const addEmployee = (catId: string, insertAtIdx?: number) => {
+    const newId = uuidv4();
     setCategories(prev => prev.map(c => {
       if (c.id !== catId) return c;
       const newRows = [...c.rows];
-      const newRow = { id: uuidv4(), type: 'employee' as const, name: '', rate: 10, status: '', role: '', shifts: {} };
+      const newRow = { id: newId, type: 'employee' as const, name: '', rate: 10, status: '', role: '', shifts: {} };
       if (insertAtIdx !== undefined) {
         newRows.splice(insertAtIdx, 0, newRow);
       } else {
@@ -757,13 +911,15 @@ export default function App() {
       }
       return { ...c, rows: newRows };
     }));
+    setSelectedRowId(newId);
   };
 
   const addSubheader = (catId: string, insertAtIdx?: number) => {
+    const newId = uuidv4();
     setCategories(prev => prev.map(c => {
       if (c.id !== catId) return c;
       const newRows = [...c.rows];
-      const newRow = { id: uuidv4(), type: 'subheader' as const, name: 'NUEVA SECCIÓN...', rate: 0, status: '', role: '', shifts: {} };
+      const newRow = { id: newId, type: 'subheader' as const, name: 'NUEVA SECCIÓN...', rate: 0, status: '', role: '', shifts: {} };
       if (insertAtIdx !== undefined) {
         newRows.splice(insertAtIdx, 0, newRow);
       } else {
@@ -771,6 +927,7 @@ export default function App() {
       }
       return { ...c, rows: newRows };
     }));
+    setSelectedRowId(newId);
   };
 
   const deleteRow = (catId: string, rowId: string) => {
@@ -1195,6 +1352,25 @@ export default function App() {
                   <ZoomIn size={16} className="text-slate-400" />
                   <div className="text-xs font-bold text-slate-600 w-10 text-right select-none">{gridZoom}%</div>
                 </div>
+                <div className="h-8 w-px bg-slate-200 border-r"></div>
+                <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1 border border-slate-200 shadow-sm">
+                  <button
+                    onClick={handleUndo}
+                    disabled={historyIndex <= 0}
+                    className="p-1.5 hover:bg-white hover:text-blue-600 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-400 rounded text-slate-500 transition cursor-pointer"
+                    title="Deshacer (Undo)"
+                  >
+                    <Undo size={15} />
+                  </button>
+                  <button
+                    onClick={handleRedo}
+                    disabled={historyIndex >= history.length - 1}
+                    className="p-1.5 hover:bg-white hover:text-blue-600 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-400 rounded text-slate-500 transition cursor-pointer"
+                    title="Rehacer (Redo)"
+                  >
+                    <Redo size={15} />
+                  </button>
+                </div>
               </>
             )}
 
@@ -1371,6 +1547,27 @@ export default function App() {
                     />
                     <ZoomIn size={15} className="text-slate-400 shrink-0" />
                     <div className="text-xs font-bold text-slate-600 w-10 text-right select-none shrink-0">{gridZoom}%</div>
+                  </div>
+                </div>
+                <div className="flex flex-col gap-1.5 mt-2">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Historial</span>
+                  <div className="flex gap-2 w-full">
+                    <button
+                      onClick={() => { handleUndo(); setMobileMenuOpen(false); }}
+                      disabled={historyIndex <= 0}
+                      className="flex-1 bg-white hover:bg-slate-50 disabled:opacity-40 text-slate-700 border border-slate-200 font-semibold py-2 rounded-lg flex items-center justify-center gap-1.5 transition-colors cursor-pointer text-xs"
+                    >
+                      <Undo size={14} />
+                      Deshacer
+                    </button>
+                    <button
+                      onClick={() => { handleRedo(); setMobileMenuOpen(false); }}
+                      disabled={historyIndex >= history.length - 1}
+                      className="flex-1 bg-white hover:bg-slate-50 disabled:opacity-40 text-slate-700 border border-slate-200 font-semibold py-2 rounded-lg flex items-center justify-center gap-1.5 transition-colors cursor-pointer text-xs"
+                    >
+                      <Redo size={14} />
+                      Rehacer
+                    </button>
                   </div>
                 </div>
                 <div className="flex flex-col gap-1.5 mt-2">
@@ -2055,7 +2252,9 @@ export default function App() {
             {/* BODY ROWS */}
             <tbody>
               {categories.map((cat, catIdx) => {
-                const totalRowSpan = cat.rows.length + 1; // + 1 for Add Line dummy row
+                const isAnyRowSelectedInCat = cat.rows.some(r => r.id === selectedRowId);
+                const totalRowSpan = cat.rows.length + 1 + (isAnyRowSelectedInCat && canEdit ? 1 : 0); // + 1 for Action Row + 1 if insertion row is visible
+                
                 return (
                   <React.Fragment key={cat.id}>
                     {cat.rows.map((row, rowIdx) => {
@@ -2075,195 +2274,291 @@ export default function App() {
                       globalCost += rowTotalEuros;
 
                       const isDragOver = dragOverInfo?.catId === cat.id && dragOverInfo?.rowIdx === rowIdx;
+                      const globalRowIdx = flatRows.findIndex(fr => fr.rowId === row.id);
+                      const isFirstRow = rowIdx === 0;
+                      const topBorderClass = isFirstRow ? " border-t-2 border-t-slate-600" : "";
+
                       return (
-                        <tr 
-                          key={row.id} 
-                          className={`relative group h-[20px] ${isDragOver ? 'bg-blue-100' : selectedRowId === row.id ? 'bg-yellow-100/70' : 'hover:bg-blue-50/40'}`}
-                          onClick={() => setSelectedRowId(row.id)}
-                          onFocus={() => setSelectedRowId(row.id)}
-                          draggable={canEdit}
-                          onDragStart={(e) => canEdit && handleDragStart(e, cat.id, rowIdx)}
-                          onDragOver={(e) => canEdit && handleDragOver(e, cat.id, rowIdx)}
-                          onDragLeave={handleDragLeave}
-                          onDrop={(e) => canEdit && handleDrop(e, cat.id, rowIdx)}
-                          onDragEnd={handleDragEnd}
-                        >
-                          {/* 1. Category Vertical Label (Only on 1st row of category) */}
-                          {rowIdx === 0 && (
-                            <td 
-                              rowSpan={totalRowSpan} 
-                              className={`${cellBorder} bg-opacity-70 group relative align-middle`}
-                              style={{ backgroundColor: cat.color }}
-                            >
-                              <div className="absolute inset-0 flex items-center justify-center overflow-hidden w-full">
-                                <div 
-                                  className="font-bold text-[13px] text-black w-6 mx-auto tracking-widest uppercase flex items-center justify-center py-0 opacity-90 h-full whitespace-nowrap"
-                                  style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
-                                >
-                                  {cat.name}
-                                </div>
-                              </div>
-                              {canEdit && (
-                                <button 
-                                  onClick={() => deleteCategory(cat.id)}
-                                  className="absolute top-1 left-1 opacity-0 group-hover:opacity-100 p-1 text-red-600 bg-white/80 rounded hover:bg-red-100 transition-all z-10 shadow cursor-pointer"
-                                  title="Eliminar Categoría"
-                                >
-                                  <Trash2 size={12} />
-                                </button>
-                              )}
-                            </td>
-                          )}
-
-                          {/* 2. Divider Blank space (matching screenshot aesthetic) */}
-                          <td className={`${cellBorder} w-6`} style={{ backgroundColor: cat.color + '40' }}></td>
-
-                          {/* 3. Employee Name / Subheader */}
-                          {!(hideEmployeeColumnMobile && isMobile) && (
-                            <td 
-                              className={`${cellBorder} relative font-semibold text-slate-800 group/name sticky left-0 z-30 shadow-[2px_0_4px_-2px_#cbd5e1] ${selectedRowId === row.id ? 'bg-yellow-100' : ''}`}
-                              style={{ 
-                                width: nameColumnWidth, 
-                                minWidth: nameColumnWidth,
-                                backgroundColor: selectedRowId === row.id ? undefined : (row.type === 'subheader' ? '#dcf3db' : cat.color + '25')
-                              }}
-                            >
-                              <AutoResizingTextarea 
-                                value={row.name}
-                                onChange={(e) => updateRow(cat.id, row.id, r => ({...r, name: e.target.value}))}
-                                className={`${plainInput} text-left font-semibold uppercase px-2 py-0.5`}
-                                placeholder={row.type === 'employee' ? 'Nombre...' : 'TITULO SECCIÓN'}
-                                disabled={!canEdit}
-                              />
-                              {/* Hidden Delete Button (shows on hover) */}
-                              {canEdit && (
-                                <button 
-                                   onClick={() => deleteRow(cat.id, row.id)}
-                                   className="absolute -left-3 top-1 opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 bg-white shadow rounded-full p-0.5 z-40 transition-opacity"
-                                >
-                                   <Trash2 size={10} />
-                                </button>
-                              )}
-
-                              {/* Insertion Controls (shows on hover) */}
-                              {canEdit && (
-                                <div className="absolute right-0.5 top-[1px] bottom-[1px] hidden group-hover/name:flex items-center gap-0.5 bg-white/95 px-1 shadow-[0_0_8px_4px_rgba(255,255,255,0.95)] z-40 rounded border border-slate-100">
-                                   <button onClick={() => addEmployee(cat.id, rowIdx)} title="Empleado Arriba" className="flex items-center text-blue-600 hover:bg-blue-100 p-0.5 rounded transition">
-                                     <ChevronUp size={10} className="-mr-0.5" /><UserPlus size={10} />
-                                   </button>
-                                   <button onClick={() => addEmployee(cat.id, rowIdx + 1)} title="Empleado Abajo" className="flex items-center text-blue-600 hover:bg-blue-100 p-0.5 rounded transition">
-                                     <ChevronDown size={10} className="-mr-0.5" /><UserPlus size={10} />
-                                   </button>
-                                   <div className="w-[1px] h-3 bg-slate-300 mx-0.5"></div>
-                                   <button onClick={() => addSubheader(cat.id, rowIdx)} title="Sección Arriba" className="flex items-center text-emerald-600 hover:bg-emerald-100 p-0.5 rounded transition">
-                                     <ChevronUp size={10} className="-mr-0.5" /><FilePlus size={10} />
-                                   </button>
-                                   <button onClick={() => addSubheader(cat.id, rowIdx + 1)} title="Sección Abajo" className="flex items-center text-emerald-600 hover:bg-emerald-100 p-0.5 rounded transition">
-                                     <ChevronDown size={10} className="-mr-0.5" /><FilePlus size={10} />
-                                   </button>
-                                </div>
-                              )}
-                            </td>
-                          )}
-
-                          {/* 4. Rate (Skipped visual for subheaders) */}
-                          {row.type === 'subheader' ? (
-                            <td 
-                              className={`${cellBorder}`}
-                              style={{ backgroundColor: selectedRowId === row.id ? undefined : '#dcf3db' }}
-                            ></td>
-                          ) : (
-                            <td 
-                              className={`${cellBorder} text-slate-500 ${selectedRowId === row.id ? 'bg-yellow-100' : ''}`}
-                              style={{ backgroundColor: selectedRowId === row.id ? undefined : cat.color + '25' }}
-                            >
-                              <input 
-                                type="number" 
-                                value={row.rate || ''}
-                                onChange={(e) => updateRow(cat.id, row.id, r => ({...r, rate: parseFloat(e.target.value) || 0}))}
-                                className={plainInput}
-                                min="0" step="0.5"
-                                placeholder="0"
-                                disabled={!canEdit}
-                              />
-                            </td>
-                          )}
-
-                          {/* 5. Shifts (Blocks of 3) or Empty for subheader */}
-                          {row.type === 'subheader' ? (
-                            <td 
-                              colSpan={daysArray.length * 3 + 3} 
-                              className={`${cellBorder}`}
-                              style={{ backgroundColor: selectedRowId === row.id ? undefined : '#dcf3db' }}
-                            ></td>
-                          ) : (
-                            <>
-                              {daysArray.map((_, dayIdx) => {
-                                const s = row.shifts[dayIdx] || { start: '', end: '' };
-                                const dayHrs = getHours(s.start, s.end);
-                                
-                                return (
-                                  <React.Fragment key={dayIdx}>
-                                    <td 
-                                      className={`${cellBorder} ${selectedRowId === row.id ? 'bg-yellow-100' : ''}`}
-                                      style={{ backgroundColor: selectedRowId === row.id ? undefined : cat.color + '10' }}
-                                    >
-                                      <input 
-                                        type="text" 
-                                        value={s.start}
-                                        onChange={(e) => handleShiftChange(cat.id, row.id, dayIdx, 'start', e.target.value)}
-                                        onBlur={(e) => handleShiftBlur(cat.id, row.id, dayIdx, 'start', e.target.value)}
-                                        className={plainInput} 
-                                        placeholder=""
-                                        disabled={!canEdit}
-                                      />
-                                    </td>
-                                    <td 
-                                      className={`${cellBorder} ${selectedRowId === row.id ? 'bg-yellow-100' : ''}`}
-                                      style={{ backgroundColor: selectedRowId === row.id ? undefined : cat.color + '10' }}
-                                    >
-                                      <input 
-                                        type="text" 
-                                        value={s.end}
-                                        onChange={(e) => handleShiftChange(cat.id, row.id, dayIdx, 'end', e.target.value)}
-                                        onBlur={(e) => handleShiftBlur(cat.id, row.id, dayIdx, 'end', e.target.value)}
-                                        className={plainInput} 
-                                        placeholder=""
-                                        disabled={!canEdit}
-                                      />
-                                    </td>
-                                    <td className={`${cellBorder} ${selectedRowId === row.id ? 'bg-yellow-100/75 text-yellow-900 font-bold' : 'bg-slate-200/50 text-slate-400 font-medium'} text-center align-middle select-none pointer-events-none`}>
-                                      {formatDecimalHours(dayHrs)}
-                                    </td>
-                                  </React.Fragment>
-                                );
-                              })}
-
-                              {/* 6. Finals (Total Hours, Total €, Status) */}
-                              <td className={`${cellBorder} ${selectedRowId === row.id ? 'bg-yellow-100 font-black text-slate-900' : 'bg-slate-200 text-slate-800 font-bold'} text-center`}>
-                                {formatDecimalHours(rowHoursDecimals)}
-                              </td>
-                              <td className={`${cellBorder} text-center font-bold text-[12px] tabular-nums ${(rowTotalEuros > 0 && row.status === 'PAGADO') ? 'bg-green-400/90 text-white' : (rowTotalEuros > 0 ? 'bg-green-200 text-green-900' : 'bg-slate-100 text-slate-400')}`}>
-                                {rowTotalEuros > 0 ? `${rowTotalEuros.toFixed(2)} €` : ''}
-                              </td>
+                        <React.Fragment key={row.id}>
+                          <tr 
+                            className={`relative group h-[20px] ${isDragOver ? 'bg-blue-100' : selectedRowId === row.id ? 'bg-yellow-100/70' : 'hover:bg-blue-50/40'}`}
+                            onClick={() => setSelectedRowId(row.id)}
+                            onFocus={() => setSelectedRowId(row.id)}
+                            draggable={canEdit}
+                            onDragStart={(e) => canEdit && handleDragStart(e, cat.id, rowIdx)}
+                            onDragOver={(e) => canEdit && handleDragOver(e, cat.id, rowIdx)}
+                            onDragLeave={handleDragLeave}
+                            onDrop={(e) => canEdit && handleDrop(e, cat.id, rowIdx)}
+                            onDragEnd={handleDragEnd}
+                          >
+                            {/* 1. Category Vertical Label (Only on 1st row of category) */}
+                            {rowIdx === 0 && (
                               <td 
-                                className={`${cellBorder} ${selectedRowId === row.id ? 'bg-yellow-100' : ''}`}
+                                rowSpan={totalRowSpan} 
+                                className={`${cellBorder} bg-opacity-70 group relative align-middle border-t-2 border-t-slate-600 border-b-2 border-b-slate-600 border-l-2 border-l-slate-600`}
+                                style={{ backgroundColor: cat.color }}
+                              >
+                                <div 
+                                  onClick={(e) => {
+                                    if (!canEdit) return;
+                                    e.stopPropagation();
+                                    setActiveColorPickerCatId(cat.id);
+                                  }}
+                                  className="absolute inset-0 flex items-center justify-center overflow-hidden w-full cursor-pointer hover:bg-black/5 active:bg-black/10 transition-colors"
+                                  title="Cambiar Color de Categoría"
+                                >
+                                  <div 
+                                    className="font-bold text-[13px] text-black w-6 mx-auto tracking-widest uppercase flex items-center justify-center py-0 opacity-90 h-full whitespace-nowrap"
+                                    style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
+                                  >
+                                    {cat.name}
+                                  </div>
+                                </div>
+                                {canEdit && (
+                                  <button 
+                                    onClick={(e) => { e.stopPropagation(); deleteCategory(cat.id); }}
+                                    className="absolute top-1 left-1 opacity-0 group-hover:opacity-100 p-1 text-red-600 bg-white/80 rounded hover:bg-red-100 transition-all z-10 shadow cursor-pointer"
+                                    title="Eliminar Categoría"
+                                  >
+                                    <Trash2 size={12} />
+                                  </button>
+                                )}
+
+                                {/* Color Picker Popover */}
+                                {activeColorPickerCatId === cat.id && (
+                                  <>
+                                    <div 
+                                      className="fixed inset-0 z-50 cursor-default"
+                                      onClick={(e) => { e.stopPropagation(); setActiveColorPickerCatId(null); }}
+                                    ></div>
+                                    <div 
+                                      className="absolute top-1/2 left-full ml-2 -translate-y-1/2 bg-white border border-slate-200 rounded-lg shadow-xl p-3 z-50 flex flex-col gap-2.5 min-w-[140px] cursor-default text-left select-none text-slate-700 font-sans"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Color de Categoría</div>
+                                      <div className="grid grid-cols-4 gap-1.5">
+                                        {PALETTE.map((c) => (
+                                          <button
+                                            key={c}
+                                            onClick={() => {
+                                              updateCategoryColor(cat.id, c);
+                                              setActiveColorPickerCatId(null);
+                                            }}
+                                            className="w-5 h-5 rounded-full border border-black/10 hover:scale-110 active:scale-95 transition-transform cursor-pointer"
+                                            style={{ backgroundColor: c }}
+                                          />
+                                        ))}
+                                      </div>
+                                      <div className="h-px bg-slate-100 my-1"></div>
+                                      <label className="flex items-center justify-between gap-2 text-[10px] font-medium text-slate-600 cursor-pointer">
+                                        <span>Personalizado:</span>
+                                        <input 
+                                          type="color" 
+                                          value={cat.color}
+                                          onChange={(e) => updateCategoryColor(cat.id, e.target.value)}
+                                          className="w-5 h-5 p-0 border-0 rounded cursor-pointer bg-transparent"
+                                        />
+                                      </label>
+                                    </div>
+                                  </>
+                                )}
+                              </td>
+                            )}
+
+                            {/* 2. Divider Blank space */}
+                            <td className={`${cellBorder} w-6${topBorderClass}`} style={{ backgroundColor: cat.color + '40' }}></td>
+
+                            {/* 3. Employee Name / Subheader */}
+                            {!(hideEmployeeColumnMobile && isMobile) && (
+                              <td 
+                                className={`${cellBorder} relative font-semibold text-slate-800 group/name sticky left-0 z-30 shadow-[2px_0_4px_-2px_#cbd5e1] ${selectedRowId === row.id ? 'bg-yellow-100' : ''}${topBorderClass}`}
+                                style={{ 
+                                  width: nameColumnWidth, 
+                                  minWidth: nameColumnWidth,
+                                  backgroundColor: selectedRowId === row.id ? undefined : (row.type === 'subheader' ? '#dcf3db' : cat.color + '25')
+                                }}
+                              >
+                                <AutoResizingTextarea 
+                                  value={row.name}
+                                  onChange={(e) => updateRow(cat.id, row.id, r => ({...r, name: e.target.value}))}
+                                  className={`${plainInput} text-left font-semibold uppercase px-2 py-0.5`}
+                                  placeholder={row.type === 'employee' ? 'Nombre...' : 'TITULO SECCIÓN'}
+                                  disabled={!canEdit}
+                                  data-row-idx={globalRowIdx}
+                                  data-col-idx={0}
+                                  onKeyDown={(e: any) => handleKeyDown(e, globalRowIdx, 0)}
+                                />
+                                {/* Hidden Delete Button */}
+                                {canEdit && (
+                                  <button 
+                                     onClick={() => deleteRow(cat.id, row.id)}
+                                     className="absolute -left-3 top-1 opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 bg-white shadow rounded-full p-0.5 z-40 transition-opacity"
+                                  >
+                                     <Trash2 size={10} />
+                                  </button>
+                                )}
+                              </td>
+                            )}
+
+                            {/* 4. Rate */}
+                            {row.type === 'subheader' ? (
+                              <td 
+                                className={`${cellBorder}${topBorderClass}`}
+                                style={{ backgroundColor: selectedRowId === row.id ? undefined : '#dcf3db' }}
+                              ></td>
+                            ) : (
+                              <td 
+                                className={`${cellBorder} text-slate-500 ${selectedRowId === row.id ? 'bg-yellow-100' : ''}${topBorderClass}`}
                                 style={{ backgroundColor: selectedRowId === row.id ? undefined : cat.color + '25' }}
                               >
-                                <select 
-                                  value={row.status}
-                                  onChange={(e) => updateRow(cat.id, row.id, r => ({...r, status: e.target.value}))}
-                                  className={`${plainInput} bg-transparent font-medium text-[10px] uppercase appearance-none`}
+                                <input 
+                                  type="number" 
+                                  value={row.rate || ''}
+                                  onChange={(e) => updateRow(cat.id, row.id, r => ({...r, rate: parseFloat(e.target.value) || 0}))}
+                                  className={plainInput}
+                                  min="0" step="0.5"
+                                  placeholder="0"
                                   disabled={!canEdit}
-                                >
-                                  <option value="">--</option>
-                                  <option value="PAGADO">PAGADO</option>
-                                  <option value="PREPARADO">PREPARADO</option>
-                                </select>
+                                  data-row-idx={globalRowIdx}
+                                  data-col-idx={1}
+                                  onKeyDown={(e) => handleKeyDown(e, globalRowIdx, 1)}
+                                />
                               </td>
-                            </>
+                            )}
+
+                            {/* 5. Shifts or Empty for subheader */}
+                            {row.type === 'subheader' ? (
+                              <td 
+                                colSpan={daysArray.length * 3 + 3} 
+                                className={`${cellBorder}${topBorderClass} border-r-2 border-r-slate-600`}
+                                style={{ backgroundColor: selectedRowId === row.id ? undefined : '#dcf3db' }}
+                              ></td>
+                            ) : (
+                              <>
+                                {daysArray.map((_, dayIdx) => {
+                                  const s = row.shifts[dayIdx] || { start: '', end: '' };
+                                  const dayHrs = getHours(s.start, s.end);
+                                  
+                                  return (
+                                    <React.Fragment key={dayIdx}>
+                                      <td 
+                                        className={`${cellBorder} ${selectedRowId === row.id ? 'bg-yellow-100' : ''}${topBorderClass}`}
+                                        style={{ backgroundColor: selectedRowId === row.id ? undefined : cat.color + '10' }}
+                                      >
+                                        <input 
+                                          type="text" 
+                                          value={s.start}
+                                          onChange={(e) => handleShiftChange(cat.id, row.id, dayIdx, 'start', e.target.value)}
+                                          onBlur={(e) => handleShiftBlur(cat.id, row.id, dayIdx, 'start', e.target.value)}
+                                          className={plainInput} 
+                                          placeholder=""
+                                          disabled={!canEdit}
+                                          data-row-idx={globalRowIdx}
+                                          data-col-idx={2 + 2 * dayIdx}
+                                          onKeyDown={(e) => handleKeyDown(e, globalRowIdx, 2 + 2 * dayIdx)}
+                                        />
+                                      </td>
+                                      <td 
+                                        className={`${cellBorder} ${selectedRowId === row.id ? 'bg-yellow-100' : ''}${topBorderClass}`}
+                                        style={{ backgroundColor: selectedRowId === row.id ? undefined : cat.color + '10' }}
+                                      >
+                                        <input 
+                                          type="text" 
+                                          value={s.end}
+                                          onChange={(e) => handleShiftChange(cat.id, row.id, dayIdx, 'end', e.target.value)}
+                                          onBlur={(e) => handleShiftBlur(cat.id, row.id, dayIdx, 'end', e.target.value)}
+                                          className={plainInput} 
+                                          placeholder=""
+                                          disabled={!canEdit}
+                                          data-row-idx={globalRowIdx}
+                                          data-col-idx={2 + 2 * dayIdx + 1}
+                                          onKeyDown={(e) => handleKeyDown(e, globalRowIdx, 2 + 2 * dayIdx + 1)}
+                                        />
+                                      </td>
+                                      <td className={`${cellBorder} ${selectedRowId === row.id ? 'bg-yellow-100/75 text-yellow-900 font-bold' : 'bg-slate-200/50 text-slate-400 font-medium'} text-center align-middle select-none pointer-events-none${topBorderClass}`}>
+                                        {formatDecimalHours(dayHrs)}
+                                      </td>
+                                    </React.Fragment>
+                                  );
+                                })}
+
+                                {/* 6. Finals (Total Hours, Total €, Status) */}
+                                <td className={`${cellBorder} ${selectedRowId === row.id ? 'bg-yellow-100 font-black text-slate-900' : 'bg-slate-200 text-slate-800 font-bold'} text-center${topBorderClass}`}>
+                                  {formatDecimalHours(rowHoursDecimals)}
+                                </td>
+                                <td className={`${cellBorder} text-center font-bold text-[12px] tabular-nums ${(rowTotalEuros > 0 && row.status === 'PAGADO') ? 'bg-green-400/90 text-white' : (rowTotalEuros > 0 ? 'bg-green-200 text-green-900' : 'bg-slate-100 text-slate-400')}${topBorderClass}`}>
+                                  {rowTotalEuros > 0 ? `${rowTotalEuros.toFixed(2)} €` : ''}
+                                </td>
+                                <td 
+                                  className={`${cellBorder} ${selectedRowId === row.id ? 'bg-yellow-100' : ''}${topBorderClass} border-r-2 border-r-slate-600`}
+                                  style={{ backgroundColor: selectedRowId === row.id ? undefined : cat.color + '25' }}
+                                >
+                                  <select 
+                                    value={row.status}
+                                    onChange={(e) => updateRow(cat.id, row.id, r => ({...r, status: e.target.value}))}
+                                    className={`${plainInput} bg-transparent font-medium text-[10px] uppercase appearance-none`}
+                                    disabled={!canEdit}
+                                    data-row-idx={globalRowIdx}
+                                    data-col-idx={2 + 2 * daysArray.length}
+                                    onKeyDown={(e) => handleKeyDown(e, globalRowIdx, 2 + 2 * daysArray.length)}
+                                  >
+                                    <option value="">--</option>
+                                    <option value="PAGADO">PAGADO</option>
+                                    <option value="PREPARADO">PREPARADO</option>
+                                  </select>
+                                </td>
+                              </>
+                            )}
+                          </tr>
+
+                          {/* Insertion under selected row helper bar */}
+                          {selectedRowId === row.id && canEdit && (
+                            <tr className="bg-blue-50/70 border border-dashed border-blue-400 h-[24px]">
+                              <td className={`${cellBorder}`} style={{ backgroundColor: cat.color + '40' }}></td>
+                              {!(hideEmployeeColumnMobile && isMobile) && (
+                                <td colSpan={daysArray.length * 3 + 5} className={`${cellBorder} px-3 py-1 bg-blue-50/80 border-r-2 border-r-slate-600`}>
+                                  <div className="flex items-center gap-4 text-xs font-semibold text-slate-700">
+                                    <span className="text-slate-500 uppercase text-[9px] tracking-wider font-bold">Insertar bajo {row.name || 'Fila sin nombre'}:</span>
+                                    <button 
+                                      onClick={() => addEmployee(cat.id, rowIdx + 1)}
+                                      className="flex items-center gap-1.5 px-2.5 py-1 bg-white hover:bg-blue-100 text-blue-600 border border-blue-200 rounded shadow-sm hover:shadow transition cursor-pointer"
+                                    >
+                                      <UserPlus size={12} />
+                                      <span>Añadir Personal</span>
+                                    </button>
+                                    <button 
+                                      onClick={() => addSubheader(cat.id, rowIdx + 1)}
+                                      className="flex items-center gap-1.5 px-2.5 py-1 bg-white hover:bg-emerald-100 text-emerald-600 border border-emerald-200 rounded shadow-sm hover:shadow transition cursor-pointer"
+                                    >
+                                      <FilePlus size={12} />
+                                      <span>Añadir Sección</span>
+                                    </button>
+                                  </div>
+                                </td>
+                              )}
+                              {hideEmployeeColumnMobile && isMobile && (
+                                <td colSpan={daysArray.length * 3 + 4} className={`${cellBorder} px-3 py-1 bg-blue-50/80 border-r-2 border-r-slate-600`}>
+                                  <div className="flex items-center gap-4 text-xs font-semibold text-slate-700">
+                                    <button 
+                                      onClick={() => addEmployee(cat.id, rowIdx + 1)}
+                                      className="flex items-center gap-1.5 px-2 py-1 bg-white text-blue-600 border border-blue-200 rounded shadow-sm transition text-[10px]"
+                                    >
+                                      <UserPlus size={11} />
+                                      <span>Personal</span>
+                                    </button>
+                                    <button 
+                                      onClick={() => addSubheader(cat.id, rowIdx + 1)}
+                                      className="flex items-center gap-1.5 px-2 py-1 bg-white text-emerald-600 border border-emerald-200 rounded shadow-sm transition text-[10px]"
+                                    >
+                                      <FilePlus size={11} />
+                                      <span>Sección</span>
+                                    </button>
+                                  </div>
+                                </td>
+                              )}
+                            </tr>
                           )}
-                        </tr>
+                        </React.Fragment>
                       );
                     })}
 
@@ -2274,10 +2569,86 @@ export default function App() {
                       onDragLeave={handleDragLeave}
                       onDrop={(e) => handleDrop(e, cat.id, cat.rows.length)}
                     >
-                      <td className={`${cellBorder} w-6`} style={{ backgroundColor: cat.color + '40' }}></td>
+                      {cat.rows.length === 0 && (
+                        <td 
+                          rowSpan={1} 
+                          className={`${cellBorder} bg-opacity-70 group relative align-middle border-t-2 border-t-slate-600 border-b-2 border-b-slate-600 border-l-2 border-l-slate-600`}
+                          style={{ backgroundColor: cat.color }}
+                        >
+                          <div 
+                            onClick={(e) => {
+                              if (!canEdit) return;
+                              e.stopPropagation();
+                              setActiveColorPickerCatId(cat.id);
+                            }}
+                            className="absolute inset-0 flex items-center justify-center overflow-hidden w-full cursor-pointer hover:bg-black/5 active:bg-black/10 transition-colors"
+                            title="Cambiar Color de Categoría"
+                          >
+                            <div 
+                              className="font-bold text-[13px] text-black w-6 mx-auto tracking-widest uppercase flex items-center justify-center py-0 opacity-90 h-full whitespace-nowrap"
+                              style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
+                            >
+                              {cat.name}
+                            </div>
+                          </div>
+                          {canEdit && (
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); deleteCategory(cat.id); }}
+                              className="absolute top-1 left-1 opacity-0 group-hover:opacity-100 p-1 text-red-600 bg-white/80 rounded hover:bg-red-100 transition-all z-10 shadow cursor-pointer"
+                              title="Eliminar Categoría"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          )}
+
+                          {/* Color Picker Popover */}
+                          {activeColorPickerCatId === cat.id && (
+                            <>
+                              <div 
+                                className="fixed inset-0 z-50 cursor-default"
+                                onClick={(e) => { e.stopPropagation(); setActiveColorPickerCatId(null); }}
+                              ></div>
+                              <div 
+                                className="absolute top-1/2 left-full ml-2 -translate-y-1/2 bg-white border border-slate-200 rounded-lg shadow-xl p-3 z-50 flex flex-col gap-2.5 min-w-[140px] cursor-default text-left select-none text-slate-700 font-sans"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Color de Categoría</div>
+                                <div className="grid grid-cols-4 gap-1.5">
+                                  {PALETTE.map((c) => (
+                                    <button
+                                      key={c}
+                                      onClick={() => {
+                                        updateCategoryColor(cat.id, c);
+                                        setActiveColorPickerCatId(null);
+                                      }}
+                                      className="w-5 h-5 rounded-full border border-black/10 hover:scale-110 active:scale-95 transition-transform cursor-pointer"
+                                      style={{ backgroundColor: c }}
+                                    />
+                                  ))}
+                                </div>
+                                <div className="h-px bg-slate-100 my-1"></div>
+                                <label className="flex items-center justify-between gap-2 text-[10px] font-medium text-slate-600 cursor-pointer">
+                                  <span>Personalizado:</span>
+                                  <input 
+                                    type="color" 
+                                    value={cat.color}
+                                    onChange={(e) => updateCategoryColor(cat.id, e.target.value)}
+                                    className="w-5 h-5 p-0 border-0 rounded cursor-pointer bg-transparent"
+                                  />
+                                </label>
+                              </div>
+                            </>
+                          )}
+                        </td>
+                      )}
+
+                      {cat.rows.length > 0 && (
+                        <td className={`${cellBorder} w-6 border-b-2 border-b-slate-600`} style={{ backgroundColor: cat.color + '40' }}></td>
+                      )}
+
                       {!(hideEmployeeColumnMobile && isMobile) && (
                         <td 
-                          className={`${cellBorder} p-0 sticky left-0 z-30 bg-slate-50 shadow-[2px_0_4px_-2px_#cbd5e1]`}
+                          className={`${cellBorder} p-0 sticky left-0 z-30 bg-slate-50 shadow-[2px_0_4px_-2px_#cbd5e1] border-b-2 border-b-slate-600${cat.rows.length === 0 ? ' border-t-2 border-t-slate-600' : ''}`}
                           style={{ width: nameColumnWidth, minWidth: nameColumnWidth }}
                         >
                         {canEdit && (
@@ -2293,8 +2664,8 @@ export default function App() {
                         )}
                         </td>
                       )}
-                      <td className={`${cellBorder} bg-slate-50 w-12`}></td>
-                      <td colSpan={daysArray.length * 3 + 3} className={`${cellBorder} bg-slate-50/50`}></td>
+                      <td className={`${cellBorder} bg-slate-50 w-12 border-b-2 border-b-slate-600${cat.rows.length === 0 ? ' border-t-2 border-t-slate-600' : ''}`}></td>
+                      <td colSpan={daysArray.length * 3 + 3} className={`${cellBorder} bg-slate-50/50 border-b-2 border-b-slate-600 border-r-2 border-r-slate-600${cat.rows.length === 0 ? ' border-t-2 border-t-slate-600' : ''}`}></td>
                     </tr>
                   </React.Fragment>
                 );
