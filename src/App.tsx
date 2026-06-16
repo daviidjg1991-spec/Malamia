@@ -655,18 +655,6 @@ export default function App() {
     const isArrow = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key);
     if (!isArrow) return;
 
-    if (key === 'ArrowLeft' || key === 'ArrowRight') {
-      const target = e.target as HTMLInputElement | HTMLTextAreaElement;
-      if (target.selectionStart !== undefined && target.selectionEnd !== undefined) {
-        if (key === 'ArrowLeft' && target.selectionStart !== 0) {
-          return;
-        }
-        if (key === 'ArrowRight' && target.selectionEnd !== target.value.length) {
-          return;
-        }
-      }
-    }
-
     e.preventDefault();
 
     let nextRow = globalRowIdx;
@@ -958,12 +946,10 @@ export default function App() {
       });
     });
     
-    if (isMobile) {
-      // Mobile: adapt to the longest name dynamically without hard limit
-      return maxLen * 7.5 + 24;
-    }
-    // Desktop: keep original behavior (min 160, max 350)
-    return Math.min(350, Math.max(160, maxLen * 8 + 32));
+    // Adapt to the longest name dynamically without hard limits
+    // px-2 gives 8px left and 8px right padding.
+    // 8.5 pixels per character on average for uppercase font-semibold
+    return maxLen * 8.5 + 16;
   }, [categories, isMobile]);
 
   // Global Sums
@@ -2282,7 +2268,7 @@ export default function App() {
                         <React.Fragment key={row.id}>
                           <tr 
                             className={`relative group h-[20px] ${isDragOver ? 'bg-blue-100' : selectedRowId === row.id ? 'bg-yellow-100/70' : 'hover:bg-blue-50/40'}`}
-                            onClick={() => setSelectedRowId(row.id)}
+                            onClick={() => setSelectedRowId(prev => prev === row.id ? null : row.id)}
                             onFocus={() => setSelectedRowId(row.id)}
                             draggable={canEdit}
                             onDragStart={(e) => canEdit && handleDragStart(e, cat.id, rowIdx)}
