@@ -1286,7 +1286,11 @@ export default function App() {
       <div className="bg-white px-6 py-3 md:py-4 border-b shadow-sm shrink-0 relative z-50">
         <div className="flex items-center justify-between">
           {/* Left: Logo */}
-          <div className="flex items-center gap-3 text-slate-800">
+          <div 
+            className="flex items-center gap-3 text-slate-800 cursor-pointer hover:opacity-80 transition-opacity"
+            onClick={() => window.location.reload()}
+            title="Inicio"
+          >
             <div className="w-9 h-9 rounded-lg overflow-hidden flex items-center justify-center bg-slate-50 border border-slate-100 p-1 shadow-sm">
               <img src="/favicon.png" alt="Logo" className="w-7 h-7 object-contain" />
             </div>
