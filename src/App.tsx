@@ -15,6 +15,7 @@ export interface UserAccess {
     canEdit: boolean;
     allowedViews: ViewPermission[];
     summaryEmployee?: string;
+    personalEmployee?: string;
   };
   password?: string;
 }
@@ -894,6 +895,7 @@ export default function App() {
   const [newUserCanEdit, setNewUserCanEdit] = useState(false);
   const [newUserViews, setNewUserViews] = useState<ViewPermission[]>(['grid']);
   const [newUserSummaryEmployee, setNewUserSummaryEmployee] = useState<string>('all');
+  const [newUserPersonalEmployee, setNewUserPersonalEmployee] = useState<string>('all');
 
   const handleAddUser = (e: React.FormEvent) => {
     e.preventDefault();
@@ -905,7 +907,8 @@ export default function App() {
       permissions: {
         canEdit: newUserCanEdit,
         allowedViews: newUserViews,
-        summaryEmployee: newUserSummaryEmployee === 'all' ? undefined : newUserSummaryEmployee
+        summaryEmployee: newUserSummaryEmployee === 'all' ? undefined : newUserSummaryEmployee,
+        personalEmployee: newUserPersonalEmployee === 'all' ? undefined : newUserPersonalEmployee
       },
       password: newUserPassword
     }]);
@@ -914,6 +917,7 @@ export default function App() {
     setNewUserCanEdit(false);
     setNewUserViews(['grid']);
     setNewUserSummaryEmployee('all');
+    setNewUserPersonalEmployee('all');
   };
 
   const handleAddCategory = (e: React.FormEvent) => {
@@ -1110,7 +1114,7 @@ export default function App() {
       });
     });
 
-    return Object.values(map)
+    let result = Object.values(map)
       .map(emp => {
         const sortedShifts = [...emp.shifts].sort((a, b) => {
           if (a.dayIdx !== b.dayIdx) return a.dayIdx - b.dayIdx;
@@ -1125,7 +1129,13 @@ export default function App() {
         };
       })
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [categories, daysArray]);
+      
+    if (currentUser && currentUser.role !== 'admin' && currentUser.permissions.personalEmployee) {
+      result = result.filter(emp => emp.name === currentUser.permissions.personalEmployee);
+    }
+    
+    return result;
+  }, [categories, daysArray, currentUser]);
 
   const toggleEmployeePaidStatus = (empName: string, setPaid: boolean) => {
     setCategories(prev => prev.map(cat => ({
@@ -3083,6 +3093,21 @@ export default function App() {
                             </select>
                           </div>
                         )}
+                        {newUserViews.includes('personal') && (
+                          <div className="flex items-center gap-3 bg-white p-3 rounded border border-slate-300">
+                            <span className="text-sm font-semibold text-slate-700">Ver en PERSONAL:</span>
+                            <select 
+                              value={newUserPersonalEmployee}
+                              onChange={(e) => setNewUserPersonalEmployee(e.target.value)}
+                              className="px-2 py-1 border border-slate-300 rounded text-sm outline-none bg-slate-50 cursor-pointer"
+                            >
+                              <option value="all">Todos los empleados</option>
+                              {Array.from(new Set(flatRows.filter(r => r.type === 'employee' && r.name.trim() !== '').map(r => r.name))).map((empName: any) => (
+                                <option key={empName} value={empName}>{empName}</option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
                         <button type="submit" className="self-end bg-blue-600 text-white px-4 py-1.5 rounded text-sm font-semibold hover:bg-blue-700 transition">
                            Añadir Usuario
                         </button>
@@ -3124,6 +3149,11 @@ export default function App() {
                                   {user.role !== 'admin' && user.permissions.allowedViews.includes('summary') && (
                                     <div className="text-[10px] text-slate-400 mt-0.5">
                                       Resumen: {user.permissions.summaryEmployee ? user.permissions.summaryEmployee : 'Todos'}
+                                    </div>
+                                  )}
+                                  {user.role !== 'admin' && user.permissions.allowedViews.includes('personal') && (
+                                    <div className="text-[10px] text-slate-400 mt-0.5">
+                                      Personal: {user.permissions.personalEmployee ? user.permissions.personalEmployee : 'Todos'}
                                     </div>
                                   )}
                                 </td>
