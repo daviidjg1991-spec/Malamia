@@ -3013,7 +3013,7 @@ export default function App() {
               </button>
             </div>
             
-            <div className="flex overflow-x-auto whitespace-nowrap gap-2 md:gap-4 mb-4 border-b custom-scrollbar pb-1">
+            <div className="flex overflow-x-auto whitespace-nowrap gap-2 md:gap-4 mb-4 border-b custom-scrollbar pb-1 shrink-0">
               <button 
                 onClick={() => setSettingsTab('general')}
                 className={`py-2 px-4 border-b-2 font-medium text-sm transition-colors ${settingsTab === 'general' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
@@ -3024,7 +3024,7 @@ export default function App() {
               >Usuarios y Permisos</button>
             </div>
 
-            <div className="flex-1 overflow-auto custom-scrollbar mb-4 shrink-0">
+            <div className="flex-1 overflow-y-auto custom-scrollbar mb-4 min-h-0 pr-2">
                {settingsTab === 'general' ? (
                  <div className="p-6 bg-slate-50 border border-slate-200 rounded-xl max-w-md mx-auto my-6 shadow-sm">
                    <h4 className="font-bold text-slate-800 mb-4 text-sm flex items-center gap-2">
