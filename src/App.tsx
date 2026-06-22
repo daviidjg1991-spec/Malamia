@@ -3222,24 +3222,25 @@ export default function App() {
                                     placeholder={user.role === 'admin' ? '637050616' : 'Sin pass'}
                                   />
                                 </td>
-                                <td className="px-4 py-3 flex gap-2 justify-end">
+                                <td className="px-4 py-3 text-right">
                                   {user.role !== 'admin' && (
-                                    <>
+                                    <div className="flex gap-2 justify-end items-center">
                                       <button 
                                         onClick={() => openEditUser(user)}
-                                        className="text-blue-500 hover:text-blue-700 p-1"
+                                        className="bg-blue-100 text-blue-700 hover:bg-blue-200 px-2 py-1 rounded text-xs font-bold flex items-center gap-1 transition-colors"
                                         title="Editar usuario"
                                       >
-                                        <Edit size={16} />
+                                        <Edit size={12} />
+                                        <span>Editar</span>
                                       </button>
                                       <button 
                                         onClick={() => setUsersList(usersList.filter(u => u.id !== user.id))}
-                                        className="text-red-400 hover:text-red-600 p-1"
+                                        className="text-red-400 hover:text-red-600 p-1 transition-colors"
                                         title="Eliminar usuario"
                                       >
                                         <Trash2 size={16} />
                                       </button>
-                                    </>
+                                    </div>
                                   )}
                                 </td>
                               </tr>
