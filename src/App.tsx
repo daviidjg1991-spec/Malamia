@@ -14,6 +14,7 @@ export interface UserAccess {
   permissions: {
     canEdit: boolean;
     allowedViews: ViewPermission[];
+    summaryEmployee?: string;
   };
   password?: string;
 }
@@ -892,6 +893,7 @@ export default function App() {
   const [newUserPassword, setNewUserPassword] = useState('');
   const [newUserCanEdit, setNewUserCanEdit] = useState(false);
   const [newUserViews, setNewUserViews] = useState<ViewPermission[]>(['grid']);
+  const [newUserSummaryEmployee, setNewUserSummaryEmployee] = useState<string>('all');
 
   const handleAddUser = (e: React.FormEvent) => {
     e.preventDefault();
@@ -902,7 +904,8 @@ export default function App() {
       role: 'user',
       permissions: {
         canEdit: newUserCanEdit,
-        allowedViews: newUserViews
+        allowedViews: newUserViews,
+        summaryEmployee: newUserSummaryEmployee === 'all' ? undefined : newUserSummaryEmployee
       },
       password: newUserPassword
     }]);
@@ -910,6 +913,7 @@ export default function App() {
     setNewUserPassword('');
     setNewUserCanEdit(false);
     setNewUserViews(['grid']);
+    setNewUserSummaryEmployee('all');
   };
 
   const handleAddCategory = (e: React.FormEvent) => {
@@ -1048,8 +1052,14 @@ export default function App() {
       });
     });
 
-    return Object.values(stats).sort((a, b) => a.name.localeCompare(b.name));
-  }, [categories, daysArray]);
+    let result = Object.values(stats).sort((a, b) => a.name.localeCompare(b.name));
+    
+    if (currentUser && currentUser.role !== 'admin' && currentUser.permissions.summaryEmployee) {
+      result = result.filter(emp => emp.name === currentUser.permissions.summaryEmployee);
+    }
+    
+    return result;
+  }, [categories, daysArray, currentUser]);
 
   // Memoized data for PERSONAL tab
   const personalViewEmployees = useMemo(() => {
@@ -3040,7 +3050,7 @@ export default function App() {
                         </div>
                         <div className="flex items-center gap-4 bg-white p-3 rounded border border-slate-300 flex-wrap">
                            <span className="text-sm font-semibold text-slate-700">Pestañas permitidas:</span>
-                           {['grid', 'visual', 'summary', 'personal'].map((view) => (
+                           {['grid', 'visual', 'summary', 'personal', 'annotations'].map((view) => (
                              <label key={view} className="flex items-center gap-1.5 text-sm cursor-pointer select-none">
                                <input 
                                  type="checkbox"
@@ -3054,10 +3064,25 @@ export default function App() {
                                  }}
                                  className="w-4 h-4 text-blue-600 rounded"
                                />
-                               {view === 'grid' ? 'PLANTILLA' : view === 'visual' ? 'VISUAL' : view === 'summary' ? 'RESUMEN' : 'PERSONAL'}
+                               {view === 'grid' ? 'PLANTILLA' : view === 'visual' ? 'VISUAL' : view === 'summary' ? 'RESUMEN' : view === 'personal' ? 'PERSONAL' : 'ANOTACIONES'}
                              </label>
                            ))}
                         </div>
+                        {newUserViews.includes('summary') && (
+                          <div className="flex items-center gap-3 bg-white p-3 rounded border border-slate-300">
+                            <span className="text-sm font-semibold text-slate-700">Ver en RESUMEN:</span>
+                            <select 
+                              value={newUserSummaryEmployee}
+                              onChange={(e) => setNewUserSummaryEmployee(e.target.value)}
+                              className="px-2 py-1 border border-slate-300 rounded text-sm outline-none bg-slate-50 cursor-pointer"
+                            >
+                              <option value="all">Todos los empleados</option>
+                              {Array.from(new Set(flatRows.filter(r => r.type === 'employee' && r.name.trim() !== '').map(r => r.name))).map((empName: any) => (
+                                <option key={empName} value={empName}>{empName}</option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
                         <button type="submit" className="self-end bg-blue-600 text-white px-4 py-1.5 rounded text-sm font-semibold hover:bg-blue-700 transition">
                            Añadir Usuario
                         </button>
@@ -3095,7 +3120,12 @@ export default function App() {
                                   )}
                                 </td>
                                 <td className="px-4 py-3 text-slate-600 text-xs">
-                                  {user.role === 'admin' ? 'Todas' : user.permissions.allowedViews.map(v => v === 'grid' ? 'PLANTILLA' : v === 'visual' ? 'VISUAL' : v === 'summary' ? 'RESUMEN' : 'PERSONAL').join(', ')}
+                                  {user.role === 'admin' ? 'Todas' : user.permissions.allowedViews.map(v => v === 'grid' ? 'PLANTILLA' : v === 'visual' ? 'VISUAL' : v === 'summary' ? 'RESUMEN' : v === 'personal' ? 'PERSONAL' : 'ANOTACIONES').join(', ')}
+                                  {user.role !== 'admin' && user.permissions.allowedViews.includes('summary') && (
+                                    <div className="text-[10px] text-slate-400 mt-0.5">
+                                      Resumen: {user.permissions.summaryEmployee ? user.permissions.summaryEmployee : 'Todos'}
+                                    </div>
+                                  )}
                                 </td>
                                 <td className="px-4 py-3">
                                   <input 
