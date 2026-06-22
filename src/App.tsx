@@ -3013,7 +3013,7 @@ export default function App() {
               </button>
             </div>
             
-            <div className="flex gap-4 mb-4 border-b">
+            <div className="flex overflow-x-auto whitespace-nowrap gap-2 md:gap-4 mb-4 border-b custom-scrollbar pb-1">
               <button 
                 onClick={() => setSettingsTab('general')}
                 className={`py-2 px-4 border-b-2 font-medium text-sm transition-colors ${settingsTab === 'general' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
@@ -3082,7 +3082,7 @@ export default function App() {
                     <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
                       <h4 className="font-bold text-slate-800 mb-3 text-sm">Añadir Nuevo Usuario</h4>
                       <form onSubmit={handleAddUser} className="flex flex-col gap-3">
-                        <div className="flex gap-3">
+                        <div className="flex flex-col md:flex-row gap-3">
                           <input 
                             type="email"
                             value={newUserEmail}
@@ -3098,7 +3098,7 @@ export default function App() {
                             placeholder="Contraseña..."
                             className="flex-1 px-3 py-1.5 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 outline-none text-sm"
                           />
-                          <label className="flex items-center gap-2 text-sm font-medium text-slate-700 bg-white px-3 border border-slate-300 rounded cursor-pointer select-none">
+                          <label className="flex items-center gap-2 text-sm font-medium text-slate-700 bg-white px-3 py-1.5 border border-slate-300 rounded cursor-pointer select-none">
                             <input 
                               type="checkbox" 
                               checked={newUserCanEdit}
@@ -3108,7 +3108,7 @@ export default function App() {
                             Puede Modificar
                           </label>
                         </div>
-                        <div className="flex items-center gap-4 bg-white p-3 rounded border border-slate-300 flex-wrap">
+                        <div className="flex flex-col md:flex-row md:items-center items-start gap-3 md:gap-4 bg-white p-3 rounded border border-slate-300 flex-wrap">
                            <span className="text-sm font-semibold text-slate-700">Pestañas permitidas:</span>
                            {['grid', 'visual', 'summary', 'personal', 'annotations'].map((view) => (
                              <label key={view} className="flex items-center gap-1.5 text-sm cursor-pointer select-none">
@@ -3129,12 +3129,12 @@ export default function App() {
                            ))}
                         </div>
                         {newUserViews.includes('summary') && (
-                          <div className="flex items-center gap-3 bg-white p-3 rounded border border-slate-300">
+                          <div className="flex flex-col md:flex-row md:items-center items-start gap-2 md:gap-3 bg-white p-3 rounded border border-slate-300">
                             <span className="text-sm font-semibold text-slate-700">Ver en RESUMEN:</span>
                             <select 
                               value={newUserSummaryEmployee}
                               onChange={(e) => setNewUserSummaryEmployee(e.target.value)}
-                              className="px-2 py-1 border border-slate-300 rounded text-sm outline-none bg-slate-50 cursor-pointer"
+                              className="w-full md:w-auto px-2 py-1.5 border border-slate-300 rounded text-sm outline-none bg-slate-50 cursor-pointer"
                             >
                               <option value="all">Todos los empleados</option>
                               {Array.from(new Set(flatRows.filter(r => r.type === 'employee' && r.name.trim() !== '').map(r => r.name))).map((empName: any) => (
@@ -3144,12 +3144,12 @@ export default function App() {
                           </div>
                         )}
                         {newUserViews.includes('personal') && (
-                          <div className="flex items-center gap-3 bg-white p-3 rounded border border-slate-300">
+                          <div className="flex flex-col md:flex-row md:items-center items-start gap-2 md:gap-3 bg-white p-3 rounded border border-slate-300">
                             <span className="text-sm font-semibold text-slate-700">Ver en PERSONAL:</span>
                             <select 
                               value={newUserPersonalEmployee}
                               onChange={(e) => setNewUserPersonalEmployee(e.target.value)}
-                              className="px-2 py-1 border border-slate-300 rounded text-sm outline-none bg-slate-50 cursor-pointer"
+                              className="w-full md:w-auto px-2 py-1.5 border border-slate-300 rounded text-sm outline-none bg-slate-50 cursor-pointer"
                             >
                               <option value="all">Todos los empleados</option>
                               {Array.from(new Set(flatRows.filter(r => r.type === 'employee' && r.name.trim() !== '').map(r => r.name))).map((empName: any) => (
