@@ -3002,7 +3002,7 @@ export default function App() {
       {/* Settings Modal (Admin Only) */}
       {settingsModalOpen && isAdmin && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] flex items-center justify-center z-[60] p-4">
-          <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-2xl flex flex-col max-h-[90vh]">
+          <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-4xl flex flex-col max-h-[90vh]">
             <div className="flex justify-between items-center mb-5 shrink-0 border-b pb-4">
               <div className="flex items-center gap-2">
                 <Settings size={22} className="text-slate-800" />
@@ -3167,7 +3167,7 @@ export default function App() {
                     {/* Users list */}
                     <div>
                       <h4 className="font-bold text-slate-800 mb-3 text-sm">Lista de Usuarios</h4>
-                      <div className="border border-slate-200 rounded-lg overflow-hidden">
+                      <div className="border border-slate-200 rounded-lg overflow-x-auto">
                         <table className="w-full text-left text-sm border-collapse">
                           <thead className="bg-slate-100 border-b border-slate-200 hidden md:table-header-group">
                             <tr>
