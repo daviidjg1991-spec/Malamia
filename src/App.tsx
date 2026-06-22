@@ -2908,7 +2908,7 @@ export default function App() {
               </button>
             </div>
             
-            <div className="flex-1 overflow-auto custom-scrollbar pr-2 mb-4">
+            <div className="flex-1 overflow-x-auto custom-scrollbar pr-2 mb-4">
               <table className="w-full text-left border-collapse">
                 <thead className="sticky top-0 bg-white shadow-sm z-10">
                   <tr>
@@ -2961,7 +2961,7 @@ export default function App() {
 
       {/* Add Category Modal */}
       {newCategoryModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm">
             <div className="flex justify-between items-center mb-5">
               <h3 className="text-lg font-bold text-slate-800">Nueva Categoría</h3>
@@ -3001,7 +3001,7 @@ export default function App() {
 
       {/* Settings Modal (Admin Only) */}
       {settingsModalOpen && isAdmin && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] flex items-center justify-center z-[60]">
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] flex items-center justify-center z-[60] p-4">
           <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-2xl flex flex-col max-h-[90vh]">
             <div className="flex justify-between items-center mb-5 shrink-0 border-b pb-4">
               <div className="flex items-center gap-2">
@@ -3169,7 +3169,7 @@ export default function App() {
                       <h4 className="font-bold text-slate-800 mb-3 text-sm">Lista de Usuarios</h4>
                       <div className="border border-slate-200 rounded-lg overflow-hidden">
                         <table className="w-full text-left text-sm border-collapse">
-                          <thead className="bg-slate-100 border-b border-slate-200">
+                          <thead className="bg-slate-100 border-b border-slate-200 hidden md:table-header-group">
                             <tr>
                               <th className="px-4 py-2 font-semibold text-slate-600">Email</th>
                               <th className="px-4 py-2 font-semibold text-slate-600 text-center">Permiso</th>
@@ -3180,12 +3180,28 @@ export default function App() {
                           </thead>
                           <tbody>
                             {usersList.map((user) => (
-                              <tr key={user.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
-                                <td className="px-4 py-3 font-medium text-slate-800">
-                                  {user.email}
-                                  {user.role === 'admin' && <span className="ml-2 text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded uppercase font-bold tracking-wider">Admin</span>}
+                              <tr key={user.id} className="border-b border-slate-200 md:border-slate-100 last:border-0 hover:bg-slate-50 flex flex-col md:table-row p-4 md:p-0 gap-3 md:gap-0">
+                                <td className="md:px-4 md:py-3 font-medium text-slate-800 flex flex-col md:table-cell">
+                                  <span className="text-[10px] text-slate-400 uppercase font-bold md:hidden mb-1">Email</span>
+                                  <div className="flex items-center">
+                                    {user.role === 'admin' ? (
+                                      <span>
+                                        {user.email}
+                                        <span className="ml-2 text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded uppercase font-bold tracking-wider">Admin</span>
+                                      </span>
+                                    ) : (
+                                      <button 
+                                        onClick={() => openEditUser(user)} 
+                                        className="text-blue-600 hover:text-blue-800 font-bold underline decoration-blue-300 decoration-dashed underline-offset-4 cursor-pointer text-left break-all"
+                                        title="Click para editar"
+                                      >
+                                        {user.email}
+                                      </button>
+                                    )}
+                                  </div>
                                 </td>
-                                <td className="px-4 py-3 text-center">
+                                <td className="md:px-4 md:py-3 md:text-center flex justify-between items-center md:table-cell">
+                                  <span className="text-[10px] text-slate-400 uppercase font-bold md:hidden">Permiso</span>
                                   {user.role === 'admin' ? (
                                     <span className="text-slate-500 font-medium">Todo</span>
                                   ) : (
@@ -3194,20 +3210,24 @@ export default function App() {
                                     </span>
                                   )}
                                 </td>
-                                <td className="px-4 py-3 text-slate-600 text-xs">
-                                  {user.role === 'admin' ? 'Todas' : user.permissions.allowedViews.map(v => v === 'grid' ? 'PLANTILLA' : v === 'visual' ? 'VISUAL' : v === 'summary' ? 'RESUMEN' : v === 'personal' ? 'PERSONAL' : 'ANOTACIONES').join(', ')}
-                                  {user.role !== 'admin' && user.permissions.allowedViews.includes('summary') && (
-                                    <div className="text-[10px] text-slate-400 mt-0.5">
-                                      Resumen: {user.permissions.summaryEmployee ? user.permissions.summaryEmployee : 'Todos'}
-                                    </div>
-                                  )}
-                                  {user.role !== 'admin' && user.permissions.allowedViews.includes('personal') && (
-                                    <div className="text-[10px] text-slate-400 mt-0.5">
-                                      Personal: {user.permissions.personalEmployee ? user.permissions.personalEmployee : 'Todos'}
-                                    </div>
-                                  )}
+                                <td className="md:px-4 md:py-3 text-slate-600 text-xs flex flex-col md:table-cell">
+                                  <span className="text-[10px] text-slate-400 uppercase font-bold md:hidden mb-1">Pestañas</span>
+                                  <div>
+                                    {user.role === 'admin' ? 'Todas' : user.permissions.allowedViews.map(v => v === 'grid' ? 'PLANTILLA' : v === 'visual' ? 'VISUAL' : v === 'summary' ? 'RESUMEN' : v === 'personal' ? 'PERSONAL' : 'ANOTACIONES').join(', ')}
+                                    {user.role !== 'admin' && user.permissions.allowedViews.includes('summary') && (
+                                      <div className="text-[10px] text-slate-400 mt-0.5">
+                                        Resumen: {user.permissions.summaryEmployee ? user.permissions.summaryEmployee : 'Todos'}
+                                      </div>
+                                    )}
+                                    {user.role !== 'admin' && user.permissions.allowedViews.includes('personal') && (
+                                      <div className="text-[10px] text-slate-400 mt-0.5">
+                                        Personal: {user.permissions.personalEmployee ? user.permissions.personalEmployee : 'Todos'}
+                                      </div>
+                                    )}
+                                  </div>
                                 </td>
-                                <td className="px-4 py-3">
+                                <td className="md:px-4 md:py-3 flex justify-between items-center md:table-cell">
+                                  <span className="text-[10px] text-slate-400 uppercase font-bold md:hidden">Contraseña</span>
                                   <input 
                                     type="text" 
                                     value={user.password || ''}
@@ -3222,20 +3242,20 @@ export default function App() {
                                     placeholder={user.role === 'admin' ? '637050616' : 'Sin pass'}
                                   />
                                 </td>
-                                <td className="px-4 py-3 text-right">
+                                <td className="md:px-4 md:py-3 text-right flex justify-end md:table-cell mt-2 md:mt-0 pt-3 border-t border-slate-100 md:border-0 md:pt-3">
                                   {user.role !== 'admin' && (
                                     <div className="flex gap-2 justify-end items-center">
                                       <button 
                                         onClick={() => openEditUser(user)}
-                                        className="bg-blue-100 text-blue-700 hover:bg-blue-200 px-2 py-1 rounded text-xs font-bold flex items-center gap-1 transition-colors"
+                                        className="bg-blue-100 text-blue-700 hover:bg-blue-200 px-3 py-1.5 md:px-2 md:py-1 rounded md:text-xs text-sm font-bold flex items-center gap-1.5 transition-colors"
                                         title="Editar usuario"
                                       >
-                                        <Edit size={12} />
+                                        <Edit size={14} />
                                         <span>Editar</span>
                                       </button>
                                       <button 
                                         onClick={() => setUsersList(usersList.filter(u => u.id !== user.id))}
-                                        className="text-red-400 hover:text-red-600 p-1 transition-colors"
+                                        className="text-red-400 hover:text-red-600 p-1.5 md:p-1 transition-colors bg-red-50 hover:bg-red-100 rounded md:bg-transparent"
                                         title="Eliminar usuario"
                                       >
                                         <Trash2 size={16} />
@@ -3268,8 +3288,8 @@ export default function App() {
 
       {/* Edit User Modal */}
       {editingUser && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] flex items-center justify-center z-[70]">
-          <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md">
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] flex items-center justify-center z-[70] p-4">
+          <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto custom-scrollbar">
             <div className="flex justify-between items-center mb-5">
               <h3 className="text-lg font-bold text-slate-800">Editar Usuario</h3>
               <button onClick={() => setEditingUser(null)} className="text-slate-400 hover:text-slate-600 transition-colors">
