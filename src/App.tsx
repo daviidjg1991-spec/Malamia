@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Plus, Trash2, Calendar, LayoutGrid, Import, X, ChevronDown, ChevronUp, ZoomIn, ZoomOut, UserPlus, FilePlus, Settings, Lock, Unlock, LogIn, LogOut, Menu, Search, Copy, Check, Undo, Redo, FileText } from 'lucide-react';
+import { Plus, Trash2, Calendar, LayoutGrid, Import, X, ChevronDown, ChevronUp, ZoomIn, ZoomOut, UserPlus, FilePlus, Settings, Lock, Unlock, LogIn, LogOut, Menu, Search, Copy, Check, Undo, Redo, FileText, Edit } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { db } from './firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
@@ -896,6 +896,56 @@ export default function App() {
   const [newUserViews, setNewUserViews] = useState<ViewPermission[]>(['grid']);
   const [newUserSummaryEmployee, setNewUserSummaryEmployee] = useState<string>('all');
   const [newUserPersonalEmployee, setNewUserPersonalEmployee] = useState<string>('all');
+
+  const [editingUser, setEditingUser] = useState<UserAccess | null>(null);
+  const [editUserEmail, setEditUserEmail] = useState('');
+  const [editUserPassword, setEditUserPassword] = useState('');
+  const [editUserCanEdit, setEditUserCanEdit] = useState(false);
+  const [editUserViews, setEditUserViews] = useState<ViewPermission[]>(['grid']);
+  const [editUserSummaryEmployee, setEditUserSummaryEmployee] = useState<string>('all');
+  const [editUserPersonalEmployee, setEditUserPersonalEmployee] = useState<string>('all');
+
+  const openEditUser = (user: UserAccess) => {
+    setEditingUser(user);
+    setEditUserEmail(user.email);
+    setEditUserPassword(user.password || '');
+    setEditUserCanEdit(user.permissions.canEdit);
+    setEditUserViews(user.permissions.allowedViews);
+    setEditUserSummaryEmployee(user.permissions.summaryEmployee || 'all');
+    setEditUserPersonalEmployee(user.permissions.personalEmployee || 'all');
+  };
+
+  const handleSaveEditUser = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingUser || !editUserEmail.trim()) return;
+    setUsersList(usersList.map(u => u.id === editingUser.id ? {
+      ...u,
+      email: editUserEmail,
+      password: editUserPassword,
+      permissions: {
+        canEdit: editUserCanEdit,
+        allowedViews: editUserViews,
+        summaryEmployee: editUserSummaryEmployee === 'all' ? undefined : editUserSummaryEmployee,
+        personalEmployee: editUserPersonalEmployee === 'all' ? undefined : editUserPersonalEmployee
+      }
+    } : u));
+    
+    if (currentUser?.id === editingUser.id) {
+       setCurrentUser(prev => prev ? {
+         ...prev,
+         email: editUserEmail,
+         password: editUserPassword,
+         permissions: {
+           canEdit: editUserCanEdit,
+           allowedViews: editUserViews,
+           summaryEmployee: editUserSummaryEmployee === 'all' ? undefined : editUserSummaryEmployee,
+           personalEmployee: editUserPersonalEmployee === 'all' ? undefined : editUserPersonalEmployee
+         }
+       } : null);
+    }
+    
+    setEditingUser(null);
+  };
 
   const handleAddUser = (e: React.FormEvent) => {
     e.preventDefault();
@@ -3172,15 +3222,24 @@ export default function App() {
                                     placeholder={user.role === 'admin' ? '637050616' : 'Sin pass'}
                                   />
                                 </td>
-                                <td className="px-4 py-3 text-right">
+                                <td className="px-4 py-3 flex gap-2 justify-end">
                                   {user.role !== 'admin' && (
-                                    <button 
-                                      onClick={() => setUsersList(usersList.filter(u => u.id !== user.id))}
-                                      className="text-red-400 hover:text-red-600 p-1"
-                                      title="Eliminar usuario"
-                                    >
-                                      <Trash2 size={16} />
-                                    </button>
+                                    <>
+                                      <button 
+                                        onClick={() => openEditUser(user)}
+                                        className="text-blue-500 hover:text-blue-700 p-1"
+                                        title="Editar usuario"
+                                      >
+                                        <Edit size={16} />
+                                      </button>
+                                      <button 
+                                        onClick={() => setUsersList(usersList.filter(u => u.id !== user.id))}
+                                        className="text-red-400 hover:text-red-600 p-1"
+                                        title="Eliminar usuario"
+                                      >
+                                        <Trash2 size={16} />
+                                      </button>
+                                    </>
                                   )}
                                 </td>
                               </tr>
@@ -3206,7 +3265,117 @@ export default function App() {
         </div>
       )}
 
+      {/* Edit User Modal */}
+      {editingUser && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-[2px] flex items-center justify-center z-[70]">
+          <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md">
+            <div className="flex justify-between items-center mb-5">
+              <h3 className="text-lg font-bold text-slate-800">Editar Usuario</h3>
+              <button onClick={() => setEditingUser(null)} className="text-slate-400 hover:text-slate-600 transition-colors">
+                <X size={20} />
+              </button>
+            </div>
+            <form onSubmit={handleSaveEditUser} className="flex flex-col gap-4">
+              <div className="flex flex-col gap-2">
+                 <label className="text-sm font-semibold text-slate-700">Email</label>
+                 <input 
+                   type="email"
+                   value={editUserEmail}
+                   onChange={(e) => setEditUserEmail(e.target.value)}
+                   className="px-3 py-1.5 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+                   required
+                 />
+              </div>
+              <div className="flex flex-col gap-2">
+                 <label className="text-sm font-semibold text-slate-700">Contraseña</label>
+                 <input 
+                   type="text"
+                   value={editUserPassword}
+                   onChange={(e) => setEditUserPassword(e.target.value)}
+                   className="px-3 py-1.5 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+                 />
+              </div>
+              <label className="flex items-center gap-2 text-sm font-medium text-slate-700 select-none">
+                <input 
+                  type="checkbox" 
+                  checked={editUserCanEdit}
+                  onChange={(e) => setEditUserCanEdit(e.target.checked)}
+                  className="w-4 h-4 text-blue-600 rounded"
+                />
+                Puede Modificar (Edición)
+              </label>
+
+              <div className="flex flex-col gap-2 bg-slate-50 p-3 rounded border border-slate-200">
+                 <span className="text-sm font-semibold text-slate-700">Pestañas permitidas:</span>
+                 <div className="flex gap-4 flex-wrap">
+                   {['grid', 'visual', 'summary', 'personal', 'annotations'].map((view) => (
+                     <label key={view} className="flex items-center gap-1.5 text-sm cursor-pointer select-none">
+                       <input 
+                         type="checkbox"
+                         checked={editUserViews.includes(view as ViewPermission)}
+                         onChange={(e) => {
+                           if (e.target.checked) setEditUserViews([...editUserViews, view as ViewPermission]);
+                           else setEditUserViews(editUserViews.filter(v => v !== view));
+                         }}
+                         className="w-4 h-4 text-blue-600 rounded"
+                       />
+                       {view === 'grid' ? 'PLANTILLA' : view === 'visual' ? 'VISUAL' : view === 'summary' ? 'RESUMEN' : view === 'personal' ? 'PERSONAL' : 'ANOTACIONES'}
+                     </label>
+                   ))}
+                 </div>
+              </div>
+
+              {editUserViews.includes('summary') && (
+                 <div className="flex flex-col gap-1 bg-white p-2 rounded border border-slate-300">
+                   <span className="text-sm font-semibold text-slate-700">Ver en RESUMEN:</span>
+                   <select 
+                     value={editUserSummaryEmployee}
+                     onChange={(e) => setEditUserSummaryEmployee(e.target.value)}
+                     className="px-2 py-1 border border-slate-300 rounded text-sm outline-none bg-slate-50 cursor-pointer"
+                   >
+                     <option value="all">Todos los empleados</option>
+                     {Array.from(new Set(flatRows.filter(r => r.type === 'employee' && r.name.trim() !== '').map(r => r.name))).map((empName: any) => (
+                       <option key={empName} value={empName}>{empName}</option>
+                     ))}
+                   </select>
+                 </div>
+              )}
+
+              {editUserViews.includes('personal') && (
+                 <div className="flex flex-col gap-1 bg-white p-2 rounded border border-slate-300">
+                   <span className="text-sm font-semibold text-slate-700">Ver en PERSONAL:</span>
+                   <select 
+                     value={editUserPersonalEmployee}
+                     onChange={(e) => setEditUserPersonalEmployee(e.target.value)}
+                     className="px-2 py-1 border border-slate-300 rounded text-sm outline-none bg-slate-50 cursor-pointer"
+                   >
+                     <option value="all">Todos los empleados</option>
+                     {Array.from(new Set(flatRows.filter(r => r.type === 'employee' && r.name.trim() !== '').map(r => r.name))).map((empName: any) => (
+                       <option key={empName} value={empName}>{empName}</option>
+                     ))}
+                   </select>
+                 </div>
+              )}
+
+              <div className="flex justify-end gap-3 mt-2">
+                <button 
+                  type="button" 
+                  onClick={() => setEditingUser(null)}
+                  className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-colors font-medium text-sm"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  type="submit"
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors shadow-sm font-semibold text-sm"
+                >
+                  Guardar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
-
