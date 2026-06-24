@@ -1049,7 +1049,8 @@ export default function App() {
     // Adapt to the longest name dynamically without hard limits
     // px-2 gives 8px left and 8px right padding.
     // 8.5 pixels per character on average for uppercase font-semibold
-    return maxLen * 8.5 + 16;
+    const charWidth = isMobile ? 6.8 : 8.5;
+    return maxLen * charWidth + 16;
   }, [categories, isMobile]);
 
   // Global Sums
@@ -1754,7 +1755,7 @@ export default function App() {
 
       {/* Main Content Area */}
       {currentView === 'visual' ? (
-        <div className="flex-1 overflow-auto bg-slate-50 p-6 custom-scrollbar relative flex flex-col">
+        <div className="flex-1 overflow-auto bg-slate-50 p-4 pb-28 lg:p-6 custom-scrollbar relative flex flex-col">
           <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between bg-white p-3 rounded-lg shadow-sm border border-slate-200 gap-3 shrink-0">
             <div className="relative">
               <h2 
@@ -1824,7 +1825,7 @@ export default function App() {
             </div>
           </div>
           
-          <div ref={visualContainerRef} className="flex-1 overflow-auto bg-white border border-slate-300 shadow-sm custom-scrollbar relative min-h-0">
+          <div ref={visualContainerRef} className="flex-1 overflow-auto bg-white border border-slate-300 shadow-sm custom-scrollbar relative min-h-0 pb-28 lg:pb-0">
             <table className="border-collapse text-[11px] table-fixed" style={{ width: `${visualZoom}%`, minWidth: '100%' }}>
               <thead className="sticky top-0 z-20 bg-white shadow-sm">
                 <tr>
@@ -1909,7 +1910,7 @@ export default function App() {
           </div>
         </div>
       ) : currentView === 'summary' ? (
-        <div className="flex-1 overflow-auto bg-slate-50 p-6 custom-scrollbar">
+        <div className="flex-1 overflow-auto bg-slate-50 p-4 pb-28 lg:p-6 custom-scrollbar">
           <div className="max-w-4xl mx-auto bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
             <div className="px-6 py-5 border-b border-slate-200 bg-slate-50 flex flex-col sm:flex-row gap-4 sm:justify-between sm:items-center">
               <div>
@@ -2346,7 +2347,7 @@ export default function App() {
         </div>
       ) : (
         <div className="flex-1 flex flex-col overflow-hidden relative">
-          <div ref={gridContainerRef} className="flex-1 overflow-auto bg-[#c5d9f1] p-3 shadow-inner custom-scrollbar relative">
+          <div ref={gridContainerRef} className="flex-1 overflow-auto bg-[#c5d9f1] p-3 pb-28 lg:pb-3 shadow-inner custom-scrollbar relative">
             <div 
               className="bg-white min-w-max shadow text-slate-800 relative z-0 inline-block"
               style={{ zoom: gridZoom / 100 }}
