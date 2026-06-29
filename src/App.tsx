@@ -1854,7 +1854,7 @@ export default function App() {
                           <tr key={emp.id} className="h-[20px] hover:bg-slate-50">
                             {rowIdx === 0 && (
                               <td 
-                                rowSpan={group.employees.length} 
+                                rowSpan={group.employees.length + 1} 
                                 className={`${cellBorder} border-slate-400 relative sticky left-0 z-10 w-6 p-0`}
                                 style={{ backgroundColor: group.catColor + '60' }}
                               >
@@ -1902,6 +1902,29 @@ export default function App() {
                           </tr>
                         );
                       })}
+                      <tr className="h-[20px] border-b-[3px] border-slate-400">
+                        <td 
+                          className={`${cellBorder} px-2 font-bold bg-slate-300 text-slate-800 text-right whitespace-nowrap overflow-hidden text-ellipsis text-[10px] sm:text-[11px] leading-tight align-middle sticky left-[24px] z-10 shadow-[2px_0_4px_-2px_#e2e8f0] uppercase`}
+                          style={{ width: nameColumnWidth, minWidth: nameColumnWidth }}
+                        >
+                          TOTAL
+                        </td>
+                        {visualHours.map(h => {
+                          const count = group.employees.reduce((acc, emp) => {
+                            const isFilled = emp.shifts.some((s: any) => s.start < h + 1 && s.end > h);
+                            return acc + (isFilled ? 1 : 0);
+                          }, 0);
+                          
+                          return (
+                            <td 
+                              key={`total-${h}`} 
+                              className={`${cellBorder} text-center font-bold text-slate-900 text-[10.5px] bg-slate-200`}
+                            >
+                              {count > 0 ? count : ''}
+                            </td>
+                          );
+                        })}
+                      </tr>
                     </React.Fragment>
                   );
                 })}
